@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("releaseVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.1").get()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.2").get()
     }
     val signingReady = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
         .all { !System.getenv(it).isNullOrBlank() }

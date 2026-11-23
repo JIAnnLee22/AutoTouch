@@ -37,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -87,6 +88,11 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
     var disclosure by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<ClickRegion?>(null) }
     var settingsError by remember { mutableStateOf<String?>(null) }
+    var groupAction by remember { mutableStateOf<String?>(null) }
+    var groupName by remember { mutableStateOf("") }
+    var triggerInput by remember(state.runtime.targetTriggerCount) { mutableStateOf(state.runtime.targetTriggerCount.toString()) }
+    val triggerCountValid = triggerInput.isNotEmpty() && triggerInput.all(Char::isDigit) &&
+        triggerInput.toLongOrNull()?.let { it > 0 } == true
     val config = state.settings.config
     val ready = state.settings.loaded && state.settings.error == null
     val editable = ready && state.runtime.mode == RunMode.IDLE && !state.saving
@@ -116,15 +122,21 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                                 RunMode.PAUSED -> "●  已暂停"
                                 RunMode.EDITING -> "●  悬浮编辑中"
                             }, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                            Text("${state.runtime.completed} 次完成", style = MaterialTheme.typography.labelLarge)
+                            Text("${state.runtime.completed}/${state.runtime.targetTriggerCount} 次组触发", style = MaterialTheme.typography.labelLarge)
                         }
                         Text(state.runtime.message, style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(value = triggerInput, onValueChange = { value ->
+                            triggerInput = value
+                            if (value.isNotEmpty() && value.all(Char::isDigit)) value.toLongOrNull()?.let { model.setTarget(it) }
+                        }, label = { Text("本次组触发次数（完成后停止，不保存累计）") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+                            enabled = editable, isError = !triggerCountValid, modifier = Modifier.fillMaxWidth())
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (state.runtime.mode == RunMode.RUNNING) {
                                 Button(onClick = model::pause, modifier = Modifier.weight(1f)) { Text("暂停") }
                             } else {
                                 Button(onClick = model::start, enabled = ready && !state.saving && state.runtime.connected &&
-                                    state.runtime.mode != RunMode.EDITING && config.regions.any { it.enabled },
+                                    state.runtime.mode != RunMode.EDITING && config.regions.any { it.enabled } && triggerCountValid,
                                     modifier = Modifier.weight(1f)) {
                                     Text(if (state.runtime.mode == RunMode.PAUSED) "恢复运行" else "开始运行")
                                 }
@@ -132,7 +144,7 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             OutlinedButton(onClick = model::stop, enabled = state.runtime.mode != RunMode.IDLE,
                                 modifier = Modifier.weight(1f)) { Text("停止") }
                         }
-                        Text("首次先等待配置延迟；暂停/停止清空事件。手势完成不等于目标应用业务成功。",
+                        Text("每次组触发按组内规则各执行一遍；暂停保留本次进度，停止后重新开始清零。手势完成不等于目标应用业务成功。",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -151,9 +163,30 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                 }
             }
             item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("单选开启的组", style = MaterialTheme.typography.titleMedium)
+                        config.groups.forEach { group ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = group.id == config.selectedGroupId, enabled = editable,
+                                    onClick = { selected = null; deleting = null; model.selectGroup(group.id) })
+                                Text("${group.name} · ${group.regions.size} 个区域", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        Row {
+                            TextButton(onClick = { groupName = "组 ${config.groups.size + 1}"; groupAction = "add" }, enabled = editable) { Text("新建组") }
+                            TextButton(onClick = { groupName = config.selectedGroup.name; groupAction = "rename" }, enabled = editable) { Text("改组名") }
+                            TextButton(onClick = model::deleteGroup, enabled = editable && config.groups.size > 1 && config.regions.isEmpty()) { Text("删除空组") }
+                        }
+                        Text("仅运行和编辑选定组；运行或暂停期间请先停止再切组。", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("触摸区域  ${config.regions.size}", style = MaterialTheme.typography.titleLarge,
+                    Text("${config.selectedGroup.name} · ${config.regions.size} 个区域", style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold)
                     FilledTonalButton(onClick = { model.add(context.screenSpace()) }, enabled = editable) { Text("＋ 添加") }
                 }
@@ -180,7 +213,7 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             Column(Modifier.weight(1f)) {
                                 Text(region.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(region.sourceRegionId?.let { id -> "依赖 ${config.regions.find { it.id == id }?.name ?: "未知区域"} 完成" }
-                                    ?: "独立循环", color = MaterialTheme.colorScheme.primary,
+                                    ?: "独立计时", color = MaterialTheme.colorScheme.primary,
                                     style = MaterialTheme.typography.labelMedium)
                             }
                             Switch(checked = region.enabled, enabled = editable,
@@ -188,9 +221,9 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                         }
                         Text("${region.timing.baseDelayMs} + 随机 ${region.timing.randomDelayMinMs}~${region.timing.randomDelayMaxMs} ms",
                             style = MaterialTheme.typography.bodyLarge)
-                        Text("圆心 (${region.centerX.toInt()}, ${region.centerY.toInt()}) · 半径 ${region.radiusPx.toInt()} px · 按压 ${region.pressDurationMs} ms",
+                        Text("圆心 (${region.centerX.toInt()}, ${region.centerY.toInt()}) · 半径 ${region.radiusPx.toInt()} px · 短按 ${region.pressDurationMinMs}~${region.pressDurationMaxMs} ms",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (region.sourceRegionId != null) Text("重复事件：${region.repeatPolicy.title}",
+                        if (region.sourceRegionId != null) Text("同组上游完成后计时，每次组触发执行一次",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -220,10 +253,17 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
         }) { Text("了解，打开设置") } },
         dismissButton = { TextButton(onClick = { disclosure = false }) { Text("取消") } })
     selected?.let { region ->
-        RegionDialog(region, config, onDismiss = { selected = null }, onSave = {
-            model.save(it); selected = null
+        RegionDialog(region, config, onDismiss = { selected = null }, onSave = { updated, targetGroup ->
+            model.save(updated, targetGroup); selected = null
         })
     }
+    groupAction?.let { action -> AlertDialog(onDismissRequest = { groupAction = null },
+        title = { Text(if (action == "add") "新建组" else "修改组名") },
+        text = { OutlinedTextField(value = groupName, onValueChange = { groupName = it }, label = { Text("组名") }, singleLine = true) },
+        confirmButton = { TextButton(enabled = groupName.isNotBlank(), onClick = {
+            if (action == "add") model.addGroup(groupName) else model.renameGroup(groupName)
+            groupAction = null
+        }) { Text("保存") } }, dismissButton = { TextButton(onClick = { groupAction = null }) { Text("取消") } }) }
     deleting?.let { region -> AlertDialog(onDismissRequest = { deleting = null },
         title = { Text("删除 ${region.name}？") }, text = { Text("删除将立即保存。如果其他区域依赖它，需要先解除依赖。") },
         confirmButton = { TextButton(onClick = { model.delete(region.id); deleting = null }) { Text("删除") } },
@@ -243,7 +283,7 @@ private fun ErrorCard(message: String) {
 }
 
 @Composable
-private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -> Unit, onSave: (ClickRegion) -> Unit) {
+private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -> Unit, onSave: (ClickRegion, String) -> Unit) {
     var name by remember { mutableStateOf(region.name) }
     var x by remember { mutableStateOf(region.centerX.toString()) }
     var y by remember { mutableStateOf(region.centerY.toString()) }
@@ -251,25 +291,30 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
     var base by remember { mutableStateOf(region.timing.baseDelayMs.toString()) }
     var min by remember { mutableStateOf(region.timing.randomDelayMinMs.toString()) }
     var max by remember { mutableStateOf(region.timing.randomDelayMaxMs.toString()) }
-    var press by remember { mutableStateOf(region.pressDurationMs.toString()) }
+    var pressMin by remember { mutableStateOf(region.pressDurationMinMs.toString()) }
+    var pressMax by remember { mutableStateOf(region.pressDurationMaxMs.toString()) }
+    var targetGroup by remember { mutableStateOf(config.selectedGroupId) }
     var source by remember { mutableStateOf(region.sourceRegionId) }
-    var policy by remember { mutableStateOf(region.repeatPolicy) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("编辑区域") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("区域名称") }, singleLine = true)
+            ChoiceButton("所属组：${config.groups.first { it.id == targetGroup }.name}", config.groups.map { it.id },
+                { id -> config.groups.first { it.id == id }.name }) { targetGroup = it }
+            Text("跨组移动需先解除此区域的相关依赖；保存后只在目标组中显示。", style = MaterialTheme.typography.bodySmall)
             Text("触发方式", style = MaterialTheme.typography.labelLarge)
-            ChoiceButton(label = source?.let { id -> "依赖 ${config.regions.find { it.id == id }?.name}" } ?: "独立循环",
+            ChoiceButton(label = source?.let { id -> "依赖 ${config.regions.find { it.id == id }?.name}" } ?: "独立计时",
                 options = listOf<String?>(null) + config.regions.filter { it.id != region.id }.map { it.id },
-                title = { id -> id?.let { selected -> "依赖 ${config.regions.find { it.id == selected }?.name} 完成" } ?: "独立循环" },
+                title = { id -> id?.let { selected -> "依赖 ${config.regions.find { it.id == selected }?.name} 完成" } ?: "独立计时" },
                 onSelect = { source = it })
-            if (source != null) ChoiceButton(policy.title, RepeatPolicy.entries, { it.title }) { policy = it }
-            Text(if (source == null) "每次手势完成后等待以下时间" else "上游手势完成后，等待以下时间点击一次",
+            Text(if (source == null) "每次组触发开始后等待以下时间，点击一次" else "上游手势完成后，等待以下时间点击一次",
                 style = MaterialTheme.typography.bodySmall)
             NumberField("基础延迟 (ms)", base) { base = it }
             NumberField("随机附加下限 (ms)", min) { min = it }
             NumberField("随机附加上限 (ms)", max) { max = it }
-            NumberField("短按时长 (ms，1~200)", press) { press = it }
+            NumberField("短按时长下限 (ms，1~200)", pressMin) { pressMin = it }
+            NumberField("短按时长上限 (ms，1~200)", pressMax) { pressMax = it }
+            Text("每次点击独立随机抽取，包含上下限；两者相同为固定短按。", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Text("屏幕物理坐标（px）· 圆形须完整位于安全边界内", style = MaterialTheme.typography.bodySmall)
             NumberField("圆心 X (px)", x, decimal = true) { x = it }
@@ -279,16 +324,18 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
         }
     }, confirmButton = { TextButton(onClick = {
         fun parseMs(text: String): Long? = text.takeIf { it.isNotBlank() && it.all(Char::isDigit) }?.toLongOrNull()
-        val baseMs = parseMs(base); val minMs = parseMs(min); val maxMs = parseMs(max); val pressMs = parseMs(press)
+        val baseMs = parseMs(base); val minMs = parseMs(min); val maxMs = parseMs(max)
+        val pressMinMs = parseMs(pressMin); val pressMaxMs = parseMs(pressMax)
         val centerX = x.toFloatOrNull(); val centerY = y.toFloatOrNull(); val radiusPx = radius.toFloatOrNull()
-        if (baseMs == null || minMs == null || maxMs == null || pressMs == null ||
+        if (baseMs == null || minMs == null || maxMs == null || pressMinMs == null || pressMaxMs == null ||
             centerX == null || centerY == null || radiusPx == null) {
             error = "请输入有效数字；时间必须为非负整数 ms，且不能超出 Long 范围"
         } else {
             val updated = region.copy(name = name.trim(), centerX = centerX, centerY = centerY, radiusPx = radiusPx,
-                timing = TimingRule(baseMs, minMs, maxMs), pressDurationMs = pressMs, sourceRegionId = source, repeatPolicy = policy)
-            val message = config.copy(regions = config.regions.map { if (it.id == region.id) updated else it }).error()
-            if (message != null) error = message else onSave(updated)
+                timing = TimingRule(baseMs, minMs, maxMs), pressDurationMinMs = pressMinMs, pressDurationMaxMs = pressMaxMs,
+                sourceRegionId = source)
+            val message = config.updateSelected { group -> group.copy(regions = group.regions.map { if (it.id == region.id) updated else it }) }.error()
+            if (message != null) error = message else onSave(updated, targetGroup)
         }
     }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }

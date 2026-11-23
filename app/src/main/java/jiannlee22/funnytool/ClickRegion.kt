@@ -67,8 +67,20 @@ data class ClickRegion(
     // null means independent; a dependency is one tap per successful upstream completion.
     val sourceRegionId: String? = null,
     val repeatPolicy: RepeatPolicy = RepeatPolicy.IGNORE,
-    val pressDurationMs: Long = 50,
+    val pressDurationMinMs: Long = 50,
+    val pressDurationMaxMs: Long = 50,
 ) {
+    fun pressDurationError(): String? = when {
+        pressDurationMinMs !in 1..200 || pressDurationMaxMs !in 1..200 -> "短按上下限需为 1~200 ms"
+        pressDurationMinMs > pressDurationMaxMs -> "短按下限不能大于上限"
+        else -> null
+    }
+
+    fun samplePressDurationMs(random: Random = Random.Default): Long {
+        require(pressDurationError() == null) { pressDurationError().orEmpty() }
+        return random.nextLong(pressDurationMinMs, pressDurationMaxMs + 1)
+    }
+
     fun randomPoint(random: Random = Random.Default): Pair<Float, Float> {
         val theta = random.nextDouble() * 2 * PI
         val rho = radiusPx * sqrt(random.nextDouble())
@@ -90,7 +102,14 @@ data class ClickRegion(
     }
 }
 
-data class AppConfig(val regions: List<ClickRegion> = emptyList(), val screen: ScreenSpace? = null) {
+const val DEFAULT_GROUP_ID = "default"
+
+data class RegionGroup(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val regions: List<ClickRegion> = emptyList(),
+    val screen: ScreenSpace? = null,
+) {
     fun error(): String? {
         if (regions.isEmpty()) return null
         val space = screen ?: return "请先编辑区域，确认屏幕坐标"
@@ -100,9 +119,9 @@ data class AppConfig(val regions: List<ClickRegion> = emptyList(), val screen: S
         for (region in regions) {
             if (region.id.isBlank() || region.name.isBlank()) return "区域名称与 ID 不能为空"
             region.timing.error()?.let { return "${region.name}：$it" }
-            if (region.pressDurationMs !in 1..200) return "${region.name}：首版短按需为 1~200 ms"
+            region.pressDurationError()?.let { return "${region.name}：$it" }
             if (!region.fits(space)) return "${region.name}：圆形必须完整处于安全屏幕内"
-            if (region.sourceRegionId != null && region.sourceRegionId !in byId) return "${region.name}：上游区域不存在"
+            if (region.sourceRegionId != null && region.sourceRegionId !in byId) return "${region.name}：上游必须位于同一组"
             val visited = mutableSetOf<String>()
             var current: ClickRegion? = region
             while (current != null) {
@@ -115,11 +134,37 @@ data class AppConfig(val regions: List<ClickRegion> = emptyList(), val screen: S
 
     fun runError(space: ScreenSpace): String? {
         error()?.let { return it }
-        if (screen != space) return "屏幕尺寸或安全边界已变化，请重新编辑区域"
+        if (screen != space) return "当前组屏幕尺寸或安全边界已变化，请重新编辑区域"
         val active = regions.filter { it.enabled }
         if (active.isEmpty()) return "请至少启用一个区域"
         if (active.any { r -> r.sourceRegionId != null && active.none { it.id == r.sourceRegionId } })
             return "已启用的依赖区域必须同时启用它的上游"
         return null
     }
+}
+
+data class AppConfig(
+    val groups: List<RegionGroup> = listOf(RegionGroup(DEFAULT_GROUP_ID, "默认组")),
+    val selectedGroupId: String = DEFAULT_GROUP_ID,
+) {
+    val selectedGroup get() = groups.first { it.id == selectedGroupId }
+    val regions get() = selectedGroup.regions
+    val screen get() = selectedGroup.screen
+
+    fun updateSelected(transform: (RegionGroup) -> RegionGroup) = copy(
+        groups = groups.map { if (it.id == selectedGroupId) transform(it) else it },
+    )
+
+    fun error(): String? {
+        if (groups.isEmpty() || groups.none { it.id == selectedGroupId }) return "必须选定一个存在的组"
+        if (groups.map { it.id }.distinct().size != groups.size) return "分组 ID 重复"
+        if (groups.flatMap { it.regions }.map { it.id }.let { it.distinct().size != it.size }) return "区域 ID 重复"
+        for (group in groups) {
+            if (group.id.isBlank() || group.name.isBlank()) return "分组名称与 ID 不能为空"
+            group.error()?.let { return "${group.name}：$it" }
+        }
+        return null
+    }
+
+    fun runError(space: ScreenSpace): String? = error() ?: selectedGroup.runError(space)
 }

@@ -10,8 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,6 +31,7 @@ data class StoredSettings(
 
 class SettingsStore(context: Context, scope: CoroutineScope) {
     private val dataStore = context.settingsDataStore
+    // This key is deliberately stable across schema versions.
     private val key = stringPreferencesKey("config_json_v1")
     val state = dataStore.data.map { preferences ->
         runCatching { decode(preferences[key]) }
@@ -46,35 +47,38 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             require(config.error() == null) { config.error().orEmpty() }
             preferences[key] = encode(config)
         }
-        // UI actions are re-enabled only after the observable source reflects the commit.
         val config = decode(committed[key])
         state.first { it.loaded && it.config == config }
     }
 
     private fun encode(config: AppConfig): String = JSONObject().apply {
-        put("version", 1)
-        config.screen?.let { s ->
-            put("screen", JSONArray(listOf(s.widthPx, s.heightPx, s.leftPx, s.topPx, s.rightPx, s.bottomPx)))
-        }
-        put("regions", JSONArray().apply {
-            config.regions.forEach { r -> put(JSONObject().apply {
-                put("id", r.id); put("name", r.name)
-                put("centerX", r.centerX.toDouble()); put("centerY", r.centerY.toDouble())
-                put("radiusPx", r.radiusPx.toDouble()); put("enabled", r.enabled)
-                put("baseDelayMs", r.timing.baseDelayMs)
-                put("randomDelayMinMs", r.timing.randomDelayMinMs)
-                put("randomDelayMaxMs", r.timing.randomDelayMaxMs)
-                r.sourceRegionId?.let { put("sourceRegionId", it) }
-                put("repeatPolicy", r.repeatPolicy.name)
-                put("pressDurationMs", r.pressDurationMs)
+        put("version", 3)
+        put("selectedGroupId", config.selectedGroupId)
+        put("groups", JSONArray().apply {
+            config.groups.forEach { group -> put(JSONObject().apply {
+                put("id", group.id); put("name", group.name)
+                group.screen?.let { s ->
+                    put("screen", JSONArray(listOf(s.widthPx, s.heightPx, s.leftPx, s.topPx, s.rightPx, s.bottomPx)))
+                }
+                put("regions", JSONArray().apply {
+                    group.regions.forEach { r -> put(JSONObject().apply {
+                        put("id", r.id); put("name", r.name)
+                        put("centerX", r.centerX.toDouble()); put("centerY", r.centerY.toDouble())
+                        put("radiusPx", r.radiusPx.toDouble()); put("enabled", r.enabled)
+                        put("baseDelayMs", r.timing.baseDelayMs)
+                        put("randomDelayMinMs", r.timing.randomDelayMinMs)
+                        put("randomDelayMaxMs", r.timing.randomDelayMaxMs)
+                        r.sourceRegionId?.let { put("sourceRegionId", it) }
+                        put("repeatPolicy", r.repeatPolicy.name)
+                        put("pressDurationMinMs", r.pressDurationMinMs)
+                        put("pressDurationMaxMs", r.pressDurationMaxMs)
+                    }) }
+                })
             }) }
         })
     }.toString()
 
-    private fun decode(raw: String?): AppConfig {
-        if (raw == null) return AppConfig()
-        val root = JSONObject(raw)
-        require(root.getInt("version") == 1) { "不支持的配置版本" }
+    private fun decodeGroup(root: JSONObject, version: Int): RegionGroup {
         val screen = root.optJSONArray("screen")?.let {
             ScreenSpace(it.getInt(0), it.getInt(1), it.getInt(2), it.getInt(3), it.getInt(4), it.getInt(5))
         }
@@ -88,9 +92,26 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
                 timing = TimingRule(r.getLong("baseDelayMs"), r.getLong("randomDelayMinMs"), r.getLong("randomDelayMaxMs")),
                 sourceRegionId = if (r.has("sourceRegionId")) r.getString("sourceRegionId") else null,
                 repeatPolicy = RepeatPolicy.valueOf(r.getString("repeatPolicy")),
-                pressDurationMs = r.getLong("pressDurationMs"),
+                pressDurationMinMs = r.getLong(if (version == 1) "pressDurationMs" else "pressDurationMinMs"),
+                pressDurationMaxMs = r.getLong(if (version == 1) "pressDurationMs" else "pressDurationMaxMs"),
             )
         }
-        return AppConfig(regions, screen).also { require(it.error() == null) { it.error().orEmpty() } }
+        return RegionGroup(
+            id = if (version < 3) DEFAULT_GROUP_ID else root.getString("id"),
+            name = if (version < 3) "默认组" else root.getString("name"),
+            regions = regions, screen = screen,
+        )
+    }
+
+    private fun decode(raw: String?): AppConfig {
+        if (raw == null) return AppConfig()
+        val root = JSONObject(raw)
+        val version = root.getInt("version")
+        require(version in 1..3) { "不支持的配置版本" }
+        val config = if (version < 3) AppConfig(groups = listOf(decodeGroup(root, version))) else {
+            val groups = root.getJSONArray("groups")
+            AppConfig(List(groups.length()) { decodeGroup(groups.getJSONObject(it), version) }, root.getString("selectedGroupId"))
+        }
+        return config.also { require(it.error() == null) { it.error().orEmpty() } }
     }
 }

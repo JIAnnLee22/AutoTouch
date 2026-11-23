@@ -18,9 +18,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -36,23 +41,44 @@ import kotlin.math.hypot
 @Composable
 fun OverlayToolbar(service: TapAccessibilityService, move: (Float, Float) -> Unit) {
     val runtime by TapAccessibilityService.state.collectAsStateWithLifecycle()
+    var collapsed by remember { mutableStateOf(false) }
+    val drag = Modifier.pointerInput(Unit) {
+        detectDragGestures { change, amount -> change.consume(); move(amount.x, amount.y) }
+    }.sizeIn(minHeight = 48.dp).padding(vertical = 12.dp, horizontal = 8.dp)
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp, modifier = Modifier.sizeIn(maxWidth = 340.dp)) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-            Text("⠿  FunnyTool · ${runtime.completed} 次完成 · 拖动此处",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.pointerInput(Unit) {
-                    detectDragGestures { change, amount -> change.consume(); move(amount.x, amount.y) }
-                }.padding(vertical = 10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (collapsed) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${runtime.completed} 次", modifier = drag, style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { collapsed = false }, modifier = Modifier.semantics { contentDescription = "展开悬浮窗" }) {
+                    Text("▸")
+                }
+            }
+        } else Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("FunnyTool · ${runtime.completed}/${runtime.targetTriggerCount} 次", modifier = drag,
+                    style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = { collapsed = true }, modifier = Modifier.semantics { contentDescription = "折叠悬浮窗" }) {
+                    Text("▾")
+                }
+            }
+            Text(runtime.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
+            if (runtime.mode == RunMode.IDLE) Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount - 1) },
+                    enabled = runtime.targetTriggerCount > 1) { Text("−") }
+                Text("本次 ${runtime.targetTriggerCount} 次", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount + 1) },
+                    enabled = runtime.targetTriggerCount < Long.MAX_VALUE) { Text("＋") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (runtime.mode == RunMode.EDITING) {
                     Button(onClick = service::saveEditor) { Text("保存") }
-                    TextButton(onClick = { service.stop("已取消编辑") }) { Text("取消") }
+                    TextButton(onClick = service::cancelEditor) { Text("取消") }
                 } else {
                     Button(onClick = { if (runtime.mode == RunMode.RUNNING) service.pause() else service.startRun() }) {
-                        Text(if (runtime.mode == RunMode.RUNNING) "暂停" else "恢复")
+                        Text(when (runtime.mode) { RunMode.RUNNING -> "暂停"; RunMode.PAUSED -> "恢复"; else -> "开始" })
                     }
-                    TextButton(onClick = { service.stop("已停止，待执行事件已清空") }) { Text("停止") }
+                    TextButton(onClick = { service.stop("已停止，本次待执行任务已清空") }) { Text("关闭") }
                     TextButton(onClick = service::editRegions) { Text("编辑") }
                 }
             }
@@ -94,7 +120,7 @@ fun RegionEditor(config: AppConfig, onChange: (AppConfig) -> Unit) {
             pointer.consume()
             val screen = current.screen ?: return@detectDragGestures
             val position = pointer.position + origin()
-            changeConfig(current.copy(regions = current.regions.map { region ->
+            changeConfig(current.updateSelected { group -> group.copy(regions = group.regions.map { region ->
                 if (region.id != selectedId) region else {
                     if (resizing) {
                         val maxRadius = minOf(region.centerX - screen.leftPx, region.centerY - screen.topPx,
@@ -103,7 +129,7 @@ fun RegionEditor(config: AppConfig, onChange: (AppConfig) -> Unit) {
                             .coerceIn(1f, maxRadius))
                     } else region.copy(centerX = region.centerX + delta.x, centerY = region.centerY + delta.y).fitted(screen)
                 }
-            }))
+            }) })
         }
     }) {
         val offset = origin()

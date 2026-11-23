@@ -20,6 +20,7 @@ import android.view.Gravity
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -77,6 +78,17 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     companion object {
         private val mutableState = MutableStateFlow(RuntimeState())
         val state = mutableState.asStateFlow()
+        fun setTargetTriggerCount(count: Long) {
+            if (count > 0 && state.value.mode == RunMode.IDLE) {
+                mutableState.value = state.value.copy(targetTriggerCount = count, completed = 0,
+                    completedRegionIds = emptySet(), runGroupId = null)
+            }
+        }
+        fun resetProgress() {
+            if (state.value.mode != RunMode.IDLE) return
+            instance?.stop("配置已更新，等待主动开始")
+            mutableState.value = state.value.copy(completed = 0, completedRegionIds = emptySet(), runGroupId = null)
+        }
         var instance: TapAccessibilityService? = null
             private set
     }
@@ -92,6 +104,9 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     private var toolbar: ComposeView? = null
     private var editor: ComposeView? = null
     private var editingConfig by mutableStateOf<AppConfig?>(null)
+    private var editorReturnMode = RunMode.IDLE
+    private var roundRegionIds: Set<String> = emptySet()
+    val isBusy get() = saving || inFlight
     private var capturedScreen: ScreenSpace? = null
     private var inFlight = false
     private var connectionGeneration = 0L
@@ -99,9 +114,12 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     private var receiverRegistered = false
     private var displayRegistered = false
     private var toolbarParams: WindowManager.LayoutParams? = null
-    private val scheduler = ClickScheduler(scope, ::tap, { region ->
-        mutableState.value = state.value.copy(completed = state.value.completed + 1, message = "${region.name} 手势完成")
-    }, { stop(it) })
+    private val scheduler = ClickScheduler(
+        scope = scope,
+        tap = ::tap,
+        progress = { state.value },
+        onError = { stop(it) },
+    )
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { stop("屏幕已关闭，已停止") }
@@ -153,8 +171,13 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         try {
             capturedScreen = space
             showToolbar(space)
-            mutableState.value = state.value.copy(mode = RunMode.RUNNING, message = "运行中 · 完成后重新计时",
-                completed = if (state.value.mode == RunMode.PAUSED) state.value.completed else 0)
+            val resuming = state.value.mode == RunMode.PAUSED && state.value.runGroupId == settings.config.selectedGroupId
+            roundRegionIds = settings.config.regions.filter { it.enabled }.map { it.id }.toSet()
+            mutableState.value = state.value.copy(mode = RunMode.RUNNING,
+                message = "${settings.config.selectedGroup.name} 运行中 · 本次 ${state.value.targetTriggerCount} 次组触发",
+                completed = if (resuming) state.value.completed else 0,
+                completedRegionIds = if (resuming) state.value.completedRegionIds else emptySet(),
+                runGroupId = settings.config.selectedGroupId)
             scheduler.start(settings.config)
         } catch (e: Exception) { stop("无法显示停止工具条：${e.message}") }
     }
@@ -168,11 +191,28 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     fun stop(message: String = "已停止") {
         scheduler.stop()
         removeEditor()
+        removeToolbar()
+        capturedScreen = null
+        roundRegionIds = emptySet()
+        mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message,
+            completedRegionIds = emptySet(), runGroupId = null)
+    }
+
+    private fun finishRun() {
+        scheduler.stop()
+        removeEditor()
+        val message = "执行完成：本次 ${state.value.completed} 次组触发已全部完成"
+        mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message,
+            completedRegionIds = emptySet(), runGroupId = null)
+        roundRegionIds = emptySet()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        // Keep the final count visible until the user closes or starts another run.
+    }
+
+    private fun removeToolbar() {
         toolbar?.let { runCatching { windows.removeViewImmediate(it) } }
         toolbar = null
         toolbarParams = null
-        capturedScreen = null
-        mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message)
     }
 
     private fun report(message: String) { mutableState.value = state.value.copy(message = message) }
@@ -181,13 +221,19 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         if (saving || inFlight) { report("请等待保存或手势完成"); return }
         val settings = store.state.value
         if (!settings.loaded || settings.error != null) { report(settings.error ?: "配置加载中"); return }
-        if (settings.config.regions.isEmpty()) { report("请先在应用中添加区域"); return }
-        stop()
+        if (settings.config.regions.isEmpty()) { report("请先在当前组添加区域"); return }
+        if (state.value.mode == RunMode.RUNNING) pause()
+        editorReturnMode = if (state.value.mode == RunMode.PAUSED) RunMode.PAUSED else RunMode.IDLE
+        scheduler.stop()
+        removeEditor()
+        removeToolbar()
         val space = screenSpace()
-        if (!space.valid()) { report("屏幕安全边界不可用"); return }
+        if (!space.valid()) { stop("屏幕安全边界不可用，已停止"); return }
         capturedScreen = space
-        editingConfig = settings.config.copy(screen = space, regions = settings.config.regions.map { it.fitted(space) })
-        mutableState.value = state.value.copy(mode = RunMode.EDITING, message = "拖动圆心移动 · 拖动圆边缩放")
+        editingConfig = settings.config.updateSelected { group ->
+            group.copy(screen = space, regions = group.regions.map { it.fitted(space) })
+        }
+        mutableState.value = state.value.copy(mode = RunMode.EDITING, message = "仅编辑 ${settings.config.selectedGroup.name} · 拖动圆心 / 圆边")
         try {
             editor = composeWindow().apply {
                 setContent {
@@ -210,15 +256,23 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         saving = true
         scope.launch {
             try {
-                store.update { config }
-                // Keep the control bar on the target app, but never start automatically.
+                store.update { current ->
+                    require(current.selectedGroupId == config.selectedGroupId) { "选定组已变化，未保存编辑" }
+                    current.updateSelected { it.copy(regions = config.regions, screen = config.screen) }
+                }
                 if (state.value.mode == RunMode.EDITING) {
                     removeEditor()
-                    mutableState.value = state.value.copy(mode = RunMode.PAUSED, message = "区域已保存，点击恢复后开始计时")
+                    mutableState.value = state.value.copy(mode = editorReturnMode, message = "当前组区域已保存，等待主动开始或恢复")
                 }
             } catch (e: Exception) { report("保存失败：${e.message}") }
             finally { saving = false }
         }
+    }
+
+    fun cancelEditor() {
+        if (saving || state.value.mode != RunMode.EDITING) return
+        removeEditor()
+        mutableState.value = state.value.copy(mode = editorReturnMode, message = "已取消位置编辑")
     }
 
     private fun removeEditor() {
@@ -249,6 +303,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         toolbarParams = layout
         toolbar = composeWindow().apply {
             setContent { FunnyTheme { OverlayToolbar(this@TapAccessibilityService, ::moveToolbar) } }
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> moveToolbar(0f, 0f) }
         }
         windows.addView(toolbar, layout)
     }
@@ -257,13 +312,30 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         val view = toolbar ?: return
         val layout = toolbarParams ?: return
         val space = capturedScreen ?: return
-        layout.x = (layout.x + dx.toInt()).coerceIn(space.leftPx, maxOf(space.leftPx, space.rightPx - view.width))
-        layout.y = (layout.y + dy.toInt()).coerceIn(space.topPx, maxOf(space.topPx, space.bottomPx - view.height))
+        val x = (layout.x + dx.toInt()).coerceIn(space.leftPx, maxOf(space.leftPx, space.rightPx - view.width))
+        val y = (layout.y + dy.toInt()).coerceIn(space.topPx, maxOf(space.topPx, space.bottomPx - view.height))
+        if (layout.x == x && layout.y == y) return
+        layout.x = x
+        layout.y = y
         runCatching { windows.updateViewLayout(view, layout) }.onFailure { stop("工具条不可用，已停止") }
     }
 
     private fun unlocked(): Boolean = getSystemService(PowerManager::class.java).isInteractive &&
         !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    private fun recordCompletion(region: ClickRegion) {
+        val current = state.value
+        if (current.mode !in listOf(RunMode.RUNNING, RunMode.PAUSED) || current.runGroupId == null ||
+            region.id in current.completedRegionIds || current.completed >= current.targetTriggerCount) return
+        val done = current.completedRegionIds + region.id
+        val triggerComplete = roundRegionIds.isNotEmpty() && done.containsAll(roundRegionIds)
+        mutableState.value = current.copy(
+            completed = current.completed + if (triggerComplete) 1 else 0,
+            completedRegionIds = if (triggerComplete) emptySet() else done,
+            message = if (current.mode == RunMode.RUNNING) "${region.name} 手势完成" else current.message,
+        )
+        if (triggerComplete && state.value.completed == state.value.targetTriggerCount) finishRun()
+    }
 
     private suspend fun tap(region: ClickRegion): Boolean {
         if (state.value.mode != RunMode.RUNNING || !unlocked() || capturedScreen != screenSpace() || inFlight) return false
@@ -280,18 +352,24 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         val point = (1..128).asSequence().map { region.randomPoint() }
             .firstOrNull { !blocked.contains(it.first.toInt(), it.second.toInt()) } ?: return false
         val path = Path().apply { moveTo(point.first, point.second) }
+        val pressDurationMs = region.samplePressDurationMs()
         val gesture = GestureDescription.Builder().addStroke(
-            GestureDescription.StrokeDescription(path, 0, region.pressDurationMs),
+            GestureDescription.StrokeDescription(path, 0, pressDurationMs),
         ).build()
         // Cancellation does not clear inFlight: a submitted Android gesture may finish later.
         // Until its callback arrives, restart is refused, avoiding concurrent gesture cancellation.
         val generation = connectionGeneration
-        return withTimeout(region.pressDurationMs + 5000) {
+        return withTimeout(pressDurationMs + 5000) {
             suspendCancellableCoroutine { continuation ->
                 inFlight = true
+                var finished = false
                 fun finish(success: Boolean) {
-                    if (generation != connectionGeneration) return
+                    if (finished || generation != connectionGeneration) return
+                    finished = true
                     inFlight = false
+                    // A paused in-flight gesture still consumes a click on success. Only the
+                    // live scheduler may propagate dependencies; counting never does so.
+                    if (success) recordCompletion(region)
                     if (continuation.isActive) continuation.resume(success)
                 }
                 val callback = object : GestureResultCallback() {
@@ -299,13 +377,9 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
                     override fun onCancelled(gestureDescription: GestureDescription?) { finish(false) }
                 }
                 try {
-                    if (!dispatchGesture(gesture, callback, null)) {
-                        inFlight = false
-                        if (continuation.isActive) continuation.resume(false)
-                    }
+                    if (!dispatchGesture(gesture, callback, null)) finish(false)
                 } catch (e: Exception) {
-                    inFlight = false
-                    if (continuation.isActive) continuation.resume(false)
+                    finish(false)
                 }
             }
         }
@@ -325,6 +399,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         return super.onUnbind(intent)
     }
     override fun onDestroy() {
+        connectionGeneration++
         stop("服务已关闭")
         if (receiverRegistered) unregisterReceiver(screenReceiver)
         if (displayRegistered) displays.unregisterDisplayListener(displayListener)

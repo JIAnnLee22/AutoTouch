@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("releaseVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.0").get()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.1").get()
     }
     val signingReady = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
         .all { !System.getenv(it).isNullOrBlank() }
@@ -32,7 +32,7 @@ android {
             isMinifyEnabled = false
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

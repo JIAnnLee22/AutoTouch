@@ -27,7 +27,7 @@ Android 多区域随机触摸工具。包名 **`jiannlee22.funnytool`**，最低
 
 ## 构建
 
-已核对的稳定组合：AGP 8.10.1、Gradle 8.11.1、Kotlin/Compose 编译器 2.2.10、Compose BOM 2025.05.01、compile/target SDK 35、JVM 17。本机可使用 JDK 21，CI 使用 JDK 17。
+已核对的稳定组合：AGP 8.10.1、Gradle 8.11.1、Kotlin/Compose 编译器 2.2.10、Compose BOM 2025.05.01、compile/target SDK 35、JVM 17。本机已验证 JDK 17/21，CI 使用 JDK 21 与 Ubuntu 24.04 预装 Android SDK（避免重复初始化命令行工具）。
 
 ```bash
 # Android Studio 打开本目录，或设置 ANDROID_HOME 并安装 SDK 35 / Build Tools 35.0.0
@@ -58,8 +58,9 @@ nix shell --impure --expr 'let pkgs = import <nixpkgs> {}; in pkgs.python3.withP
 仓库：<https://github.com/JIAnnLee22/AutoTouch>。工作流：[`.github/workflows/release.yml`](.github/workflows/release.yml)。
 
 ```bash
-git tag -a v0.1.0 -m "FunnyTool 0.1.0"
-git push origin v0.1.0
+# 发布新版本时使用一个尚未存在的版本号，例如：
+git tag -a v0.2.0 -m "FunnyTool 0.2.0"
+git push origin v0.2.0
 ```
 
 推送 `v*` tag 后自动校验版本号、lint、构建 release APK、验证签名、生成 `SHA256SUMS.txt` 并创建 GitHub Release。支持 `v0.1.0-beta.1`，会标为预发布；也支持在 Actions 手动输入已存在的 tag 重跑。版本名取自 tag，版本码为 `1000 + GITHUB_RUN_NUMBER`；勿将已发布 tag 移到其他提交。

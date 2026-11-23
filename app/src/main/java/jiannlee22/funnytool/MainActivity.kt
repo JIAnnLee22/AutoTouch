@@ -205,7 +205,7 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                 Text("首版默认 · 圆内面积均匀随机 / 单上游依赖 / 串行手势\n运行时可切换应用，使用悬浮条随时暂停或停止。熄屏、锁屏或屏幕边界变化后不自动恢复。\n请勿用于绕过安全限制或未经授权的操作。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
-                Text("jiannlee22.funnytool · 0.1.0", style = MaterialTheme.typography.labelSmall,
+                Text("${BuildConfig.APPLICATION_ID} · ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

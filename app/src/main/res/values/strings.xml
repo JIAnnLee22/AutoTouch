@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FunnyTool</string>
+    <string name="accessibility_description">仅在你主动开始后，按已配置的圆形区域和毫秒规则模拟点击。需要无障碍手势和悬浮编辑能力，不读取屏幕内容。可以随时通过悬浮工具条暂停或停止；锁屏、屏幕变化或异常后不会自动恢复。</string>
+</resources>

@@ -86,6 +86,7 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.2：随机短按、分组、本次组触发次数与折叠悬浮窗
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45158158676) 自动发布 [v0.1.2](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.2)，回下载 APK 的 SHA-256 与签名校验通过；版本名 `0.1.2`、版本码 `1003`。
 - JDK 21 下 `:app:assembleDebug :app:assembleRelease :app:lintDebug` 构建通过，lint 0 错误、11 条警告；release APK 签名验证通过，包名 `jiannlee22.funnytool`、版本名 `0.1.2`、min SDK 26、target SDK 35。
 - 按压区间、同一次抽样用于手势/超时、分组隔离、每次组触发完成条件及暂停进度采用代码复核；未新增或运行自动化测试用例，完整真机手势、配置迁移、折叠拖动与次数行为仍需按下方清单人工验收。
 

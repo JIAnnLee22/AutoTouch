@@ -83,6 +83,7 @@ git push origin v0.2.0
 - JDK 17 下 `:app:assembleDebug :app:assembleRelease :app:lintDebug` 构建通过；lint 0 错误，11 条警告（版本升级建议、旧系统忽略属性、兼容位图/adaptive 资源并存）。
 - `apksigner verify --verbose` 验证 release APK 签名通过；`aapt dump badging` 确认包名、min SDK 26、target SDK 35。
 - `actionlint`（含 ShellCheck）检查 tag 发布工作流通过。
+- `v0.1.1` 已实际跑通 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45150085044)，自动创建 [Release](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.1)；已回下载云端 APK，SHA-256 和 APK 签名验证通过，确认版本名 `0.1.1`、版本码 `1002`、包名 `jiannlee22.funnytool`。初始 `v0.1.0` 的 SDK 初始化失败，保留原 tag、不移动历史。
 - 已在连接的 Android 12（API 31）设备安装 debug APK，并成功执行 Activity 启动命令、确认应用进程存在，未发现该应用崩溃日志。设备处于熄屏状态，**未验证屏幕可视效果、无障碍授权、悬浮交互和实际跨应用手势**，也未通过命令自动授权。
 
 ## 真机验收清单

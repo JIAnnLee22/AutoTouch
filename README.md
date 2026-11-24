@@ -99,6 +99,7 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.6：区域连点与独立随机间隔
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45309419191) 发布 [v0.1.6](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.6)，版本名 `0.1.6`、版本码 `1007`（包名 `jiannlee22.funnytool`，min SDK 26、target SDK 35）；回下载云端 APK 与 `SHA256SUMS.txt`、`SIGNING-CERTIFICATE.txt` 校验通过，证书 SHA-256 与仓库公钥证书一致（`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`）。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、11 条警告；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`，未更换固定签名。
 - 每批点击数与后续随机间隔独立于首次触发延迟；暂停保留批次内进度，整批完成才激活下游，组计数规则不变。
 - v0.1.4/v0.1.5 未发布成功，保留失败 tag 不移动历史。v0.1.5 的错误摘要定位为 Maven Central HTTP 429，发生于 AGP 依赖解析阶段而非应用编译；已在插件和依赖两处优先使用 Google 托管的 Maven Central 公共镜像，并仅对 429/502/503/504/超时/连接重置最多重试 3 次，编译错误不重试。

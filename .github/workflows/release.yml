@@ -89,9 +89,20 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.name }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:lintDebug :app:assembleRelease \
+          set +e
+          ./gradlew --no-daemon --console=plain :app:lintDebug :app:assembleRelease \
             -PreleaseVersion="$RELEASE_VERSION" \
-            -PreleaseVersionCode="$((1000 + GITHUB_RUN_NUMBER))"
+            -PreleaseVersionCode="$((1000 + GITHUB_RUN_NUMBER))" 2>&1 | tee "$RUNNER_TEMP/funnytool-gradle.log"
+          build_exit=${PIPESTATUS[0]}
+          set -e
+          if [[ "$build_exit" != 0 ]]; then
+            summary="$(tail -n 120 "$RUNNER_TEMP/funnytool-gradle.log")"
+            summary=${summary//'%'/'%25'}
+            summary=${summary//$'\r'/'%0D'}
+            summary=${summary//$'\n'/'%0A'}
+            printf '::error title=Gradle build failed::%s\n' "$summary"
+            exit "$build_exit"
+          fi
 
       - name: Prepare APK and checksums
         env:

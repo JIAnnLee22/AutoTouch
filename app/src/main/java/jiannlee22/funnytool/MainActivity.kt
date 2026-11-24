@@ -1,6 +1,7 @@
 package jiannlee22.funnytool
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -45,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +60,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -84,6 +89,21 @@ fun FunnyTheme(content: @Composable () -> Unit) {
 private fun FunnyScreen(model: MainViewModel = viewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabledInSettings by remember { mutableStateOf(context.isAccessibilityEnabledInSettings()) }
+    var ignoringBattery by remember { mutableStateOf(context.isIgnoringBatteryOptimizations()) }
+    DisposableEffect(lifecycleOwner, state.runtime.connected) {
+        fun refreshSystemState() {
+            enabledInSettings = context.isAccessibilityEnabledInSettings()
+            ignoringBattery = context.isIgnoringBatteryOptimizations()
+        }
+        refreshSystemState()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshSystemState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var selected by remember { mutableStateOf<ClickRegion?>(null) }
     var disclosure by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<ClickRegion?>(null) }
@@ -124,7 +144,12 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             }, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                             Text("${state.runtime.completed}/${state.runtime.targetTriggerCount} 次组触发", style = MaterialTheme.typography.labelLarge)
                         }
-                        Text(state.runtime.message, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (!state.runtime.connected && enabledInSettings && state.runtime.message == "请先开启无障碍服务") {
+                                "系统无障碍开关已开启，等待服务连接（若长期未连接请重开开关并允许后台无限制）"
+                            } else state.runtime.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         OutlinedTextField(value = triggerInput, onValueChange = { value ->
                             triggerInput = value
                             if (value.isNotEmpty() && value.all(Char::isDigit)) value.toLongOrNull()?.let { model.setTarget(it) }
@@ -152,12 +177,49 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
             item {
                 Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (state.runtime.connected) "✓  无障碍手势已连接" else "①  启用无障碍手势",
-                            fontWeight = FontWeight.SemiBold)
-                        Text("仅按你配置的规则点击，不读取页面内容。悬浮编辑随无障碍授权提供，无需额外悬浮窗权限。",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(when {
+                            state.runtime.connected -> "✓  无障碍手势已连接"
+                            enabledInSettings -> "⚠  无障碍开关已开启，但服务未连接"
+                            else -> "①  启用无障碍手势"
+                        }, fontWeight = FontWeight.SemiBold)
+                        Text(if (!state.runtime.connected && enabledInSettings) {
+                            "系统开关仍为开启，但服务进程可能被后台清理或正在重连。若数秒后仍未连接，请进入无障碍设置关闭后重新开启，并设置后台无限制。"
+                        } else {
+                            "仅按你配置的规则点击，不读取页面内容。悬浮编辑随无障碍授权提供，无需额外悬浮窗权限。"
+                        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(onClick = { disclosure = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (state.runtime.connected) "管理系统授权" else "前往系统授权")
+                            Text(when {
+                                state.runtime.connected -> "管理系统授权"
+                                enabledInSettings -> "重新打开无障碍设置"
+                                else -> "前往系统授权"
+                            })
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(if (ignoringBattery) "✓  已忽略电池优化（后台不易被系统清理）" else "⚠  未忽略电池优化（后台清理可能关闭无障碍）",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (ignoringBattery) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
+                        Text("原生系统普通杀进程会自动重连无障碍；但小米/OPPO/vivo 等系统若未开启「省电无限制 + 自启动 + 最近任务锁定」，划掉后台或强行停止会直接关闭无障碍开关。",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!ignoringBattery) {
+                                FilledTonalButton(onClick = {
+                                    val packageUri = Uri.parse("package:${context.packageName}")
+                                    val opened = runCatching {
+                                        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri))
+                                    }.isSuccess || runCatching {
+                                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                    }.isSuccess || runCatching {
+                                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
+                                    }.isSuccess
+                                    if (!opened) settingsError = "无法打开电池优化设置，请在系统设置中将 FunnyTool 设为无限制"
+                                }, modifier = Modifier.weight(1f)) { Text("允许后台无限制") }
+                            }
+                            OutlinedButton(onClick = {
+                                val packageUri = Uri.parse("package:${context.packageName}")
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri))
+                                }.onFailure { settingsError = "无法打开应用详情设置：${it.message}" }
+                            }, modifier = Modifier.weight(1f)) { Text("应用详情 / 自启动") }
                         }
                     }
                 }
@@ -193,7 +255,7 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
             }
             item {
                 OutlinedButton(onClick = model::edit, enabled = editable && state.runtime.connected && config.regions.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()) { Text("② 悬浮编辑 · 拖动圆心 / 圆边") }
+                    modifier = Modifier.fillMaxWidth()) { Text("② 悬浮编辑 · 滑块缩放 / 拖动移动") }
             }
             state.settings.error?.let { message -> item { ErrorCard(message) } }
             if (!state.settings.loaded) item { Text("正在读取配置…") }

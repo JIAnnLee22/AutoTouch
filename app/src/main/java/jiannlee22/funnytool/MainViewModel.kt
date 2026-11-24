@@ -100,6 +100,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun pause() { withService { pause() } }
 
     private fun withService(action: TapAccessibilityService.() -> Unit) {
-        TapAccessibilityService.instance?.action() ?: run { error.value = "请先在系统设置中启用 FunnyTool 无障碍服务" }
+        TapAccessibilityService.instance?.action() ?: run {
+            val app = getApplication<Application>()
+            error.value = if (app.isAccessibilityEnabledInSettings()) {
+                "系统无障碍开关已开启，但服务尚未连接（可能被系统后台限制或正在重连）。请稍候重试，或到无障碍设置关闭后重新开启，并允许后台无限制/自启动。"
+            } else {
+                "请先在系统设置中启用 FunnyTool 无障碍服务"
+            }
+        }
     }
 }

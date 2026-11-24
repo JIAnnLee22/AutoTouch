@@ -1,10 +1,12 @@
 package jiannlee22.funnytool
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -16,10 +18,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +77,24 @@ fun Context.screenSpace(): ScreenSpace {
         metrics.widthPixels - if (landscape) maxOf(nav, status) else 0,
         metrics.heightPixels - if (landscape) status else nav)
 }
+
+fun Context.isAccessibilityEnabledInSettings(): Boolean {
+    val expected = ComponentName(this, TapAccessibilityService::class.java)
+    val manager = getSystemService(AccessibilityManager::class.java)
+    val inManager = manager?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        ?.any { info ->
+            val service = info.resolveInfo?.serviceInfo
+            service != null && service.packageName == expected.packageName && service.name == expected.className
+        } == true
+    if (inManager) return true
+    val enabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+    if (!enabled) return false
+    val raw = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+    return raw.split(':').any { ComponentName.unflattenFromString(it) == expected }
+}
+
+fun Context.isIgnoringBatteryOptimizations(): Boolean =
+    getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
 
 class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedStateRegistryOwner {
     companion object {
@@ -235,7 +257,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         editingConfig = settings.config.updateSelected { group ->
             group.copy(screen = space, regions = group.regions.map { it.fitted(space) })
         }
-        mutableState.value = state.value.copy(mode = RunMode.EDITING, message = "仅编辑 ${settings.config.selectedGroup.name} · 拖动圆心 / 圆边")
+        mutableState.value = state.value.copy(mode = RunMode.EDITING, message = "仅编辑 ${settings.config.selectedGroup.name} · 滑块缩放 / 拖动移动")
         try {
             editor = composeWindow().apply {
                 setContent {
@@ -401,18 +423,26 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         stop("无障碍服务已断开")
         connectionGeneration++
         if (instance === this) instance = null
-        mutableState.value = RuntimeState(message = "服务已断开，请重新启用")
+        mutableState.value = RuntimeState(message = "服务已断开，请检查系统无障碍开关或后台限制")
         return super.onUnbind(intent)
     }
     override fun onDestroy() {
         connectionGeneration++
         stop("服务已关闭")
-        if (receiverRegistered) unregisterReceiver(screenReceiver)
-        if (displayRegistered) displays.unregisterDisplayListener(displayListener)
+        if (receiverRegistered) {
+            runCatching { unregisterReceiver(screenReceiver) }
+            receiverRegistered = false
+        }
+        if (displayRegistered) {
+            runCatching { displays.unregisterDisplayListener(displayListener) }
+            displayRegistered = false
+        }
         registry.currentState = Lifecycle.State.DESTROYED
         scope.cancel()
-        if (instance === this) instance = null
-        mutableState.value = RuntimeState(message = "服务已关闭")
+        if (instance === this) {
+            instance = null
+            mutableState.value = RuntimeState(message = "服务已关闭")
+        }
         super.onDestroy()
     }
 }

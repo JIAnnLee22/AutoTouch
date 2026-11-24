@@ -169,6 +169,11 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             OutlinedButton(onClick = model::stop, enabled = state.runtime.mode != RunMode.IDLE,
                                 modifier = Modifier.weight(1f)) { Text("停止") }
                         }
+                        FilledTonalButton(
+                            onClick = model::openToolbar,
+                            enabled = ready && !state.saving && state.runtime.connected && state.runtime.mode == RunMode.IDLE,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("打开悬浮控制条") }
                         Text("每次组触发完成各区域的连点批次；暂停保留本次进度，停止后重新开始清零。手势完成不等于目标应用业务成功。",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

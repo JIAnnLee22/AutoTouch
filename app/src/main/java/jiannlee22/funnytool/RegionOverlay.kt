@@ -52,47 +52,104 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 @Composable
-fun OverlayToolbar(service: TapAccessibilityService, move: (Float, Float) -> Unit) {
+fun OverlayToolbar(
+    service: TapAccessibilityService,
+    initialCollapsed: Boolean = false,
+    onCollapsedChange: (Boolean) -> Unit = {},
+    move: (Float, Float) -> Unit,
+    onMoveEnd: () -> Unit = {},
+) {
     val runtime by TapAccessibilityService.state.collectAsStateWithLifecycle()
-    var collapsed by remember { mutableStateOf(false) }
+    var collapsed by remember(initialCollapsed) { mutableStateOf(initialCollapsed) }
+    val latestMove by rememberUpdatedState(move)
+    val latestOnMoveEnd by rememberUpdatedState(onMoveEnd)
+    val latestOnCollapsedChange by rememberUpdatedState(onCollapsedChange)
     val drag = Modifier.pointerInput(Unit) {
-        detectDragGestures { change, amount -> change.consume(); move(amount.x, amount.y) }
-    }.sizeIn(minHeight = 48.dp).padding(vertical = 12.dp, horizontal = 8.dp)
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 8.dp, modifier = Modifier.sizeIn(maxWidth = 340.dp)) {
-        if (collapsed) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${runtime.completed} 次", modifier = drag, style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { collapsed = false }, modifier = Modifier.semantics { contentDescription = "展开悬浮窗" }) {
-                    Text("▸")
-                }
-            }
-        } else Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("FunnyTool · ${runtime.completed}/${runtime.targetTriggerCount} 次", modifier = drag,
-                    style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = { collapsed = true }, modifier = Modifier.semantics { contentDescription = "折叠悬浮窗" }) {
-                    Text("▾")
-                }
-            }
-            Text(runtime.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
-            if (runtime.mode == RunMode.IDLE) Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount - 1) },
-                    enabled = runtime.targetTriggerCount > 1) { Text("−") }
-                Text("本次 ${runtime.targetTriggerCount} 次", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount + 1) },
-                    enabled = runtime.targetTriggerCount < Long.MAX_VALUE) { Text("＋") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (runtime.mode == RunMode.EDITING) {
-                    Button(onClick = service::saveEditor) { Text("保存") }
-                    TextButton(onClick = service::cancelEditor) { Text("取消") }
-                } else {
-                    Button(onClick = { if (runtime.mode == RunMode.RUNNING) service.pause() else service.startRun() }) {
-                        Text(when (runtime.mode) { RunMode.RUNNING -> "暂停"; RunMode.PAUSED -> "恢复"; else -> "开始" })
+        detectDragGestures(
+            onDragEnd = { latestOnMoveEnd() },
+            onDragCancel = { latestOnMoveEnd() },
+        ) { change, amount ->
+            change.consume()
+            latestMove(amount.x, amount.y)
+        }
+    }
+    if (collapsed && runtime.mode != RunMode.EDITING) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = drag
+                    .clickable {
+                        collapsed = false
+                        latestOnCollapsedChange(false)
                     }
-                    TextButton(onClick = { service.stop("已停止，本次待执行任务已清空") }) { Text("关闭") }
-                    TextButton(onClick = service::editRegions) { Text("编辑") }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .semantics { contentDescription = "展开悬浮窗" },
+            ) {
+                Text(
+                    "${runtime.completed}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    " ▸",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    } else {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = 8.dp,
+            modifier = Modifier.sizeIn(maxWidth = 340.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "FunnyTool · ${runtime.completed}/${runtime.targetTriggerCount} 次",
+                        modifier = drag.padding(vertical = 10.dp, horizontal = 6.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    if (runtime.mode != RunMode.EDITING) {
+                        Text(
+                            "▾",
+                            modifier = Modifier
+                                .clickable {
+                                    collapsed = true
+                                    latestOnCollapsedChange(true)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .semantics { contentDescription = "折叠悬浮窗" },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Text(runtime.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
+                if (runtime.mode == RunMode.IDLE) Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount - 1) },
+                        enabled = runtime.targetTriggerCount > 1) { Text("−") }
+                    Text("本次 ${runtime.targetTriggerCount} 次", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount + 1) },
+                        enabled = runtime.targetTriggerCount < Long.MAX_VALUE) { Text("＋") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (runtime.mode == RunMode.EDITING) {
+                        Button(onClick = service::saveEditor) { Text("保存") }
+                        TextButton(onClick = service::cancelEditor) { Text("取消") }
+                    } else {
+                        Button(onClick = { if (runtime.mode == RunMode.RUNNING) service.pause() else service.startRun() }) {
+                            Text(when (runtime.mode) { RunMode.RUNNING -> "暂停"; RunMode.PAUSED -> "恢复"; else -> "开始" })
+                        }
+                        TextButton(onClick = { service.stop("已停止，本次待执行任务已清空") }) { Text("关闭") }
+                        TextButton(onClick = service::editRegions) { Text("编辑") }
+                    }
                 }
             }
         }

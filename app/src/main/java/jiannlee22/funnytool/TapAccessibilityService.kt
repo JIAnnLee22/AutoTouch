@@ -98,6 +98,10 @@ fun Context.isIgnoringBatteryOptimizations(): Boolean =
 
 class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedStateRegistryOwner {
     companion object {
+        private const val KEY_TOOLBAR_VISIBLE = "toolbar_visible"
+        private const val KEY_TOOLBAR_X = "toolbar_x"
+        private const val KEY_TOOLBAR_Y = "toolbar_y"
+        private const val KEY_TOOLBAR_COLLAPSED = "toolbar_collapsed"
         private val mutableState = MutableStateFlow(RuntimeState())
         val state = mutableState.asStateFlow()
         fun setTargetTriggerCount(count: Long) {
@@ -122,6 +126,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     override val savedStateRegistry get() = savedState.savedStateRegistry
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val store get() = (application as FunnyToolApp).store
+    private val runtimePrefs by lazy { getSharedPreferences("funnytool_runtime", MODE_PRIVATE) }
     private val windows by lazy { getSystemService(WindowManager::class.java) }
     private val displays by lazy { getSystemService(DisplayManager::class.java) }
     private var toolbar: ComposeView? = null
@@ -164,12 +169,12 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        stop()
+        val restoreToolbar = runtimePrefs.getBoolean(KEY_TOOLBAR_VISIBLE, false)
+        stop(clearToolbarPref = false)
         connectionGeneration++
         inFlight = false
         instance = this
         registry.currentState = Lifecycle.State.RESUMED
-        mutableState.value = RuntimeState(connected = true, message = "服务已连接，等待主动开始")
         if (!receiverRegistered) {
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
             else registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
@@ -179,6 +184,22 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
             displays.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
             displayRegistered = true
         }
+        if (restoreToolbar) {
+            val space = screenSpace()
+            if (space.valid()) {
+                runCatching {
+                    capturedScreen = space
+                    showToolbar(space)
+                }.onSuccess {
+                    mutableState.value = RuntimeState(connected = true, message = "服务已重连，等待主动开始")
+                    return
+                }.onFailure {
+                    removeToolbar()
+                    capturedScreen = null
+                }
+            }
+        }
+        mutableState.value = RuntimeState(connected = true, message = "服务已连接，等待主动开始")
     }
 
     fun startRun() {
@@ -212,10 +233,27 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         mutableState.value = state.value.copy(mode = RunMode.PAUSED, message = "已暂停，恢复时重新计时")
     }
 
-    fun stop(message: String = "已停止") {
+    fun openToolbar() {
+        if (saving || state.value.mode == RunMode.EDITING) return
+        val space = screenSpace()
+        if (!space.valid()) { report("屏幕安全边界不可用"); return }
+        runCatching {
+            capturedScreen = space
+            showToolbar(space)
+            report("悬浮控制条已打开，可切换应用后点击开始")
+        }.onFailure { stop("无法显示悬浮控制条：${it.message}") }
+    }
+
+    fun stop(message: String = "已停止", clearToolbarPref: Boolean = true) {
         scheduler.stop()
         removeEditor()
         removeToolbar()
+        if (clearToolbarPref) {
+            runtimePrefs.edit()
+                .putBoolean(KEY_TOOLBAR_VISIBLE, false)
+                .putBoolean(KEY_TOOLBAR_COLLAPSED, false)
+                .commit()
+        }
         capturedScreen = null
         roundRegionIds = emptySet()
         mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message,
@@ -269,7 +307,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
                 }
             }
             windows.addView(editor, params(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT))
-            showToolbar(space)
+            showToolbar(space, forceExpanded = true)
         } catch (e: Exception) { stop("悬浮编辑无法打开：${e.message}") }
     }
 
@@ -319,17 +357,39 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         android.graphics.PixelFormat.TRANSLUCENT,
     ).apply { gravity = Gravity.TOP or Gravity.LEFT }
 
-    private fun showToolbar(space: ScreenSpace) {
+    private fun showToolbar(space: ScreenSpace, forceExpanded: Boolean = false) {
         if (toolbar != null) return
+        val savedX = runtimePrefs.getInt(KEY_TOOLBAR_X, Int.MIN_VALUE)
+        val savedY = runtimePrefs.getInt(KEY_TOOLBAR_Y, Int.MIN_VALUE)
+        val initialCollapsed = if (forceExpanded) false else runtimePrefs.getBoolean(KEY_TOOLBAR_COLLAPSED, false)
+        if (forceExpanded) runtimePrefs.edit().putBoolean(KEY_TOOLBAR_COLLAPSED, false).apply()
+        runtimePrefs.edit().putBoolean(KEY_TOOLBAR_VISIBLE, true).commit()
         val layout = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
-        layout.x = space.leftPx
-        layout.y = space.topPx
+        layout.x = if (savedX == Int.MIN_VALUE) space.leftPx else savedX.coerceIn(space.leftPx, maxOf(space.leftPx, space.rightPx - 1))
+        layout.y = if (savedY == Int.MIN_VALUE) space.topPx else savedY.coerceIn(space.topPx, maxOf(space.topPx, space.bottomPx - 1))
         toolbarParams = layout
         toolbar = composeWindow().apply {
-            setContent { FunnyTheme { OverlayToolbar(this@TapAccessibilityService, ::moveToolbar) } }
+            setContent {
+                FunnyTheme {
+                    OverlayToolbar(
+                        service = this@TapAccessibilityService,
+                        initialCollapsed = initialCollapsed,
+                        onCollapsedChange = { collapsed ->
+                            runtimePrefs.edit().putBoolean(KEY_TOOLBAR_COLLAPSED, collapsed).apply()
+                        },
+                        move = ::moveToolbar,
+                        onMoveEnd = ::saveToolbarPosition,
+                    )
+                }
+            }
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> moveToolbar(0f, 0f) }
         }
         windows.addView(toolbar, layout)
+    }
+
+    private fun saveToolbarPosition() {
+        val layout = toolbarParams ?: return
+        runtimePrefs.edit().putInt(KEY_TOOLBAR_X, layout.x).putInt(KEY_TOOLBAR_Y, layout.y).apply()
     }
 
     private fun moveToolbar(dx: Float, dy: Float) {
@@ -428,7 +488,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
     }
     override fun onDestroy() {
         connectionGeneration++
-        stop("服务已关闭")
+        stop("服务已关闭", clearToolbarPref = false)
         if (receiverRegistered) {
             runCatching { unregisterReceiver(screenReceiver) }
             receiverRegistered = false

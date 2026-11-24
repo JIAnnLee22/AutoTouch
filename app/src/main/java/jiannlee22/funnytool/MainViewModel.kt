@@ -96,6 +96,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setTarget(count: Long) { TapAccessibilityService.setTargetTriggerCount(count) }
     fun start() { withService { startRun() } }
     fun edit() { withService { editRegions() } }
+    fun openToolbar() { withService { openToolbar() } }
     fun stop() { TapAccessibilityService.instance?.stop("已停止，本次待执行任务已清空") }
     fun pause() { withService { pause() } }
 

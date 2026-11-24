@@ -99,6 +99,7 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.9：紧凑展开悬浮控制条
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45324583243) 发布 [v0.1.9](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.9)，版本名 `0.1.9`、版本码 `1010`（包名 `jiannlee22.funnytool`，min SDK 26、target SDK 35）；回下载云端 APK 与 `SHA256SUMS.txt`、`SIGNING-CERTIFICATE.txt` 校验通过，证书 SHA-256 与仓库公钥证书一致（`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`）。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、19 条警告；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`。
 - 在 Android 17（API 37）模拟器实测展开态悬浮控制条：最大宽度收紧至 `172dp`，自定义 `26dp` 紧凑按钮与单行状态提示显示正常，次数数字对比度清晰。
 - 已在小米 MIUI 14 物理机（`M2006J10C`）覆盖安装验证包并确认无障碍服务保持连接；未新增自动化测试用例。

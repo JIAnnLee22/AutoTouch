@@ -99,6 +99,7 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.8：划卡重连自动拉起悬浮窗与紧凑折叠胶囊
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45321182011) 发布 [v0.1.8](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.8)，版本名 `0.1.8`、版本码 `1009`（包名 `jiannlee22.funnytool`，min SDK 26、target SDK 35）；回下载云端 APK 与 `SHA256SUMS.txt`、`SIGNING-CERTIFICATE.txt` 校验通过，证书 SHA-256 与仓库公钥证书一致（`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`）。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、19 条警告；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`。
 - 在小米 MIUI 14 物理机（`M2006J10C`，Android 12）实测：开启无障碍、忽略电池优化与自启动后，打开并折叠悬浮窗，从最近任务划掉 FunnyTool 卡片（`SwipeUpClean` 杀进程）后，系统自动重启 `TapAccessibilityService` 并自动拉起紧凑折叠悬浮窗（`0 ▸`），保持待机不自动点击。
 - 在 Android 17（API 37）模拟器实测：主界面「打开悬浮控制条」、紧凑折叠胶囊拖动与点击展开、`kill -9` 后自动恢复悬浮窗均正常。

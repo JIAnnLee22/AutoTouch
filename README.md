@@ -99,6 +99,7 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.7：无障碍保活引导与连杆悬浮编辑
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45314915613) 发布 [v0.1.7](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.7)，版本名 `0.1.7`、版本码 `1008`（包名 `jiannlee22.funnytool`，min SDK 26、target SDK 35）；回下载云端 APK 与 `SHA256SUMS.txt`、`SIGNING-CERTIFICATE.txt` 校验通过，证书 SHA-256 与仓库公钥证书一致（`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`）。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、14 条警告（含 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 对应的 `BatteryLife` 提示）；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`。
 - 在 Android 17（API 37）模拟器实测：`kill -9` 杀进程后系统自动重启并恢复 `TapAccessibilityService` 绑定，`am force-stop` 会清除系统无障碍开关；新版主界面可区分「开关已开但服务未连接」与「未开启」，并展示电池优化状态与跳转入口。
 - 在模拟器实测新版悬浮编辑：点选切换区域、连杆滑块缩放（视觉上限 `80dp`）、杆端「移动」抓手拖动平移及靠近边缘自动翻转方向均正常，保存后服务保持绑定。

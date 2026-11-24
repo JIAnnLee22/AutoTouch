@@ -98,6 +98,11 @@ git push origin v0.2.0
 例如 B 依赖 A，B 的基础延迟为 `2000 ms`、随机附加为 `300~500 ms`，则 A 整批完成后至少等待 `2300~2500 ms` 才提交 B 的第 1 次点击；其他区域的串行手势可能使 B 更晚，但不会让它提前。`0~0 ms` 仅等基础延迟，`500~500 ms` 则固定再加 500 ms；随机短按时长属于提交后的按下持续时间，不是点击前等待。暂停恢复时，尚未开始的区域重新抽取首次等待，已部分完成批次只重抽下一击的独立连点间隔，不重放成功点击。此前首次随机延迟核查未发现遗漏；新版本只是明确区分首次触发与后续连点，不移除首次随机附加。
 
 ## 验证记录
+### v0.1.9：紧凑展开悬浮控制条
+- 本地 Debug/Release/lint 构建通过，lint 0 错误、19 条警告；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`。
+- 在 Android 17（API 37）模拟器实测展开态悬浮控制条：最大宽度收紧至 `172dp`，自定义 `26dp` 紧凑按钮与单行状态提示显示正常，次数数字对比度清晰。
+- 已在小米 MIUI 14 物理机（`M2006J10C`）覆盖安装验证包并确认无障碍服务保持连接；未新增自动化测试用例。
+
 ### v0.1.8：划卡重连自动拉起悬浮窗与紧凑折叠胶囊
 - 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45321182011) 发布 [v0.1.8](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.8)，版本名 `0.1.8`、版本码 `1009`（包名 `jiannlee22.funnytool`，min SDK 26、target SDK 35）；回下载云端 APK 与 `SHA256SUMS.txt`、`SIGNING-CERTIFICATE.txt` 校验通过，证书 SHA-256 与仓库公钥证书一致（`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`）。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、19 条警告；Release 证书 SHA-256 仍为 `40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`。

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -18,11 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +43,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -104,19 +104,25 @@ fun OverlayToolbar(
         }
     } else {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 8.dp,
-            modifier = Modifier.sizeIn(maxWidth = 340.dp),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shadowElevation = 6.dp,
+            modifier = Modifier.sizeIn(maxWidth = 172.dp),
         ) {
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+            Column(
+                drag.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "FunnyTool · ${runtime.completed}/${runtime.targetTriggerCount} 次",
-                        modifier = drag.padding(vertical = 10.dp, horizontal = 6.dp),
-                        style = MaterialTheme.typography.labelLarge,
+                        "${runtime.completed}/${runtime.targetTriggerCount} 次",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     if (runtime.mode != RunMode.EDITING) {
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             "▾",
                             modifier = Modifier
@@ -124,34 +130,93 @@ fun OverlayToolbar(
                                     collapsed = true
                                     latestOnCollapsedChange(true)
                                 }
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
                                 .semantics { contentDescription = "折叠悬浮窗" },
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                Text(runtime.message, style = MaterialTheme.typography.bodySmall, maxLines = 3)
-                if (runtime.mode == RunMode.IDLE) Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount - 1) },
-                        enabled = runtime.targetTriggerCount > 1) { Text("−") }
-                    Text("本次 ${runtime.targetTriggerCount} 次", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount + 1) },
-                        enabled = runtime.targetTriggerCount < Long.MAX_VALUE) { Text("＋") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (runtime.mode == RunMode.EDITING) {
-                        Button(onClick = service::saveEditor) { Text("保存") }
-                        TextButton(onClick = service::cancelEditor) { Text("取消") }
-                    } else {
-                        Button(onClick = { if (runtime.mode == RunMode.RUNNING) service.pause() else service.startRun() }) {
-                            Text(when (runtime.mode) { RunMode.RUNNING -> "暂停"; RunMode.PAUSED -> "恢复"; else -> "开始" })
+                Text(
+                    runtime.message,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (runtime.mode == RunMode.IDLE) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("次数", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        CompactToolbarChip("−", enabled = runtime.targetTriggerCount > 1) {
+                            TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount - 1)
                         }
-                        TextButton(onClick = { service.stop("已停止，本次待执行任务已清空") }) { Text("关闭") }
-                        TextButton(onClick = service::editRegions) { Text("编辑") }
+                        Text(
+                            "${runtime.targetTriggerCount}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        CompactToolbarChip("＋", enabled = runtime.targetTriggerCount < Long.MAX_VALUE) {
+                            TapAccessibilityService.setTargetTriggerCount(runtime.targetTriggerCount + 1)
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (runtime.mode == RunMode.EDITING) {
+                        CompactToolbarChip("保存", primary = true, onClick = service::saveEditor)
+                        CompactToolbarChip("取消", onClick = service::cancelEditor)
+                    } else {
+                        CompactToolbarChip(
+                            label = when (runtime.mode) {
+                                RunMode.RUNNING -> "暂停"
+                                RunMode.PAUSED -> "恢复"
+                                else -> "开始"
+                            },
+                            primary = true,
+                        ) {
+                            if (runtime.mode == RunMode.RUNNING) service.pause() else service.startRun()
+                        }
+                        CompactToolbarChip("关闭") { service.stop("已停止，本次待执行任务已清空") }
+                        CompactToolbarChip("编辑", onClick = service::editRegions)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CompactToolbarChip(
+    label: String,
+    primary: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = when {
+            !enabled -> MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.45f)
+            primary -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceContainer
+        },
+        modifier = Modifier
+            .height(26.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Box(Modifier.padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (primary) FontWeight.Bold else FontWeight.Medium,
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    primary -> MaterialTheme.colorScheme.onPrimary
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+            )
         }
     }
 }

@@ -98,11 +98,13 @@ git push origin v0.2.0
 
 ## 验证记录
 ### v0.1.3：固定签名与依赖随机等待核查
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45305630694) 发布 [v0.1.3](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.3)，版本码 `1004`；云端 APK 与本地/仓库公钥证书指纹一致，APK 与签名说明的 SHA-256 校验通过。
+- 已删除未固定签名的 v0.1.1/v0.1.2 两个 Release 及附件，当前仅保留 v0.1.3 Release；旧 Git tag 和历史仍在。
 - 本地 Debug/Release/lint 构建通过，lint 0 错误、11 条警告；Release 证书 SHA-256 与仓库公钥证书一致，`actionlint`（含 ShellCheck）通过。
 - 依赖随机等待经模型、入队截止时间、等待循环、配置存取四条路径静态复核；未新增测试用例，尚未完成真机时序测量。
 
 ### v0.1.2：随机短按、分组、本次组触发次数与折叠悬浮窗
-- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45158158676) 自动发布 [v0.1.2](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.2)，回下载 APK 的 SHA-256 与签名校验通过；版本名 `0.1.2`、版本码 `1003`。
+- 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45158158676) 自动发布 v0.1.2（旧 Release 已删除，[源码 tag 保留](https://github.com/JIAnnLee22/AutoTouch/tree/v0.1.2)），回下载 APK 的 SHA-256 与签名校验通过；版本名 `0.1.2`、版本码 `1003`。
 - JDK 21 下 `:app:assembleDebug :app:assembleRelease :app:lintDebug` 构建通过，lint 0 错误、11 条警告；release APK 签名验证通过，包名 `jiannlee22.funnytool`、版本名 `0.1.2`、min SDK 26、target SDK 35。
 - 按压区间、同一次抽样用于手势/超时、分组隔离、每次组触发完成条件及暂停进度采用代码复核；未新增或运行自动化测试用例，完整真机手势、配置迁移、折叠拖动与次数行为仍需按下方清单人工验收。
 
@@ -110,7 +112,7 @@ git push origin v0.2.0
 - JDK 17 下 `:app:assembleDebug :app:assembleRelease :app:lintDebug` 构建通过；lint 0 错误，11 条警告（版本升级建议、旧系统忽略属性、兼容位图/adaptive 资源并存）。
 - `apksigner verify --verbose` 验证 release APK 签名通过；`aapt dump badging` 确认包名、min SDK 26、target SDK 35。
 - `actionlint`（含 ShellCheck）检查 tag 发布工作流通过。
-- `v0.1.1` 已实际跑通 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45150085044)，自动创建 [Release](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.1)；已回下载云端 APK，SHA-256 和 APK 签名验证通过，确认版本名 `0.1.1`、版本码 `1002`、包名 `jiannlee22.funnytool`。初始 `v0.1.0` 的 SDK 初始化失败，保留原 tag、不移动历史。
+- `v0.1.1` 已实际跑通 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45150085044)，自动创建 Release（现已删除，[源码 tag 保留](https://github.com/JIAnnLee22/AutoTouch/tree/v0.1.1)）；已回下载云端 APK，SHA-256 和 APK 签名验证通过，确认版本名 `0.1.1`、版本码 `1002`、包名 `jiannlee22.funnytool`。初始 `v0.1.0` 的 SDK 初始化失败，保留原 tag、不移动历史。
 - 已在连接的 Android 12（API 31）设备安装 debug APK，并成功执行 Activity 启动命令、确认应用进程存在，未发现该应用崩溃日志。设备处于熄屏状态，**未验证屏幕可视效果、无障碍授权、悬浮交互和实际跨应用手势**，也未通过命令自动授权。
 
 ## 真机验收清单

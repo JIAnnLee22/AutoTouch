@@ -89,12 +89,18 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.name }}
         run: |
           chmod +x gradlew
-          set +e
-          ./gradlew --no-daemon --console=plain :app:lintDebug :app:assembleRelease \
-            -PreleaseVersion="$RELEASE_VERSION" \
-            -PreleaseVersionCode="$((1000 + GITHUB_RUN_NUMBER))" 2>&1 | tee "$RUNNER_TEMP/funnytool-gradle.log"
-          build_exit=${PIPESTATUS[0]}
-          set -e
+          for attempt in 1 2 3; do
+            set +e
+            ./gradlew --no-daemon --console=plain :app:lintDebug :app:assembleRelease \
+              -PreleaseVersion="$RELEASE_VERSION" \
+              -PreleaseVersionCode="$((1000 + GITHUB_RUN_NUMBER))" 2>&1 | tee "$RUNNER_TEMP/funnytool-gradle.log"
+            build_exit=${PIPESTATUS[0]}
+            set -e
+            if [[ "$build_exit" == 0 ]]; then break; fi
+            if [[ "$attempt" == 3 ]] || ! grep -Eq 'Received status code (429|502|503|504)|Read timed out|Connection reset' "$RUNNER_TEMP/funnytool-gradle.log"; then break; fi
+            echo "Transient dependency network error; retrying after $((attempt * 30)) seconds."
+            sleep "$((attempt * 30))"
+          done
           if [[ "$build_exit" != 0 ]]; then
             summary="$(tail -n 120 "$RUNNER_TEMP/funnytool-gradle.log")"
             summary=${summary//'%'/'%25'}

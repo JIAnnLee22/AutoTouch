@@ -259,6 +259,7 @@ data class ClickRegion(
 
 - 上传到用户指定的现有仓库 `git@github.com:JIAnnLee22/AutoTouch.git`，不得覆盖已有历史；首次接入先核对远端内容。
 - 推送 `v主版本.次版本.修订版本`（可带预发布后缀）tag 后，GitHub Actions 执行 lint、构建安装包、校验 APK 签名并生成 SHA-256，自动创建 GitHub Release。
+- v0.1.5 云端失败已定位 Maven Central HTTP 429。插件与项目依赖优先使用 Google 托管的公开 Central 镜像 `https://maven-central.storage-download.googleapis.com/maven2/`，保留原源兜底；该镜像在 Google Cloud 文档有使用说明，但不是有支持承诺的正式产品。仅针对明确网络错误做最多 3 次退避重试，编译/配置错误直接失败，保留公开可读的失败摘要。
 - 用户本次明确允许上传签名：创建本仓库专用的固定**共享开发签名** `signing/funnytool-shared.p12`，私钥、公开口令和证书随仓库提交；此项是用户授权的例外，不适用于任何其他私钥或凭据。必须明确公开私钥可被任何人用于伪造安装包，不得称为安全的生产签名，不得复用到其他应用。
 - release 默认使用上述固定签名，不再回退到临时 debug 签名；仍允许四项 `ANDROID_*` 私有签名环境变量/Secrets 完整覆盖，配置不完整时构建失败。已发布后不得静默重新生成共享密钥。
 - 用户要求删除未固定签名的两个 Release：`v0.1.1`、`v0.1.2`（不删除 Git tag 或历史）；新固定签名包验证并发布成功后，通过工作流明确白名单删除这两个旧 Release，避免暂时没有可用下载。

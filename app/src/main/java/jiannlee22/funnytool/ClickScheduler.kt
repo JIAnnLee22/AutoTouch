@@ -34,17 +34,21 @@ class ClickScheduler(
                     val queue = PriorityQueue(compareBy<Event> { it.dueMs }.thenBy { it.sequence })
                     var sequence = 0L
                     fun enqueue(region: ClickRegion, completedAtMs: Long) {
-                        if (region.id in progress().completedRegionIds || queue.any { it.region.id == region.id }) return
+                        val clicked = progress().completedClicksByRegion[region.id] ?: 0L
+                        if (region.id in progress().completedRegionIds || clicked >= region.clicksPerTrigger ||
+                            queue.any { it.region.id == region.id }) return
                         check(queue.size < 256) { "待执行事件超过 256 个，已安全停止" }
-                        // Both roots and dependent children wait their own base + newly sampled extra.
-                        val delayMs = region.timing.sampleDelayMs()
+                        // Only the first click pays the trigger delay. Later clicks (including
+                        // resumed partial batches) use their independent random interval alone.
+                        val delayMs = if (clicked == 0L) region.timing.sampleDelayMs() else region.sampleClickIntervalMs()
                         check(delayMs <= Long.MAX_VALUE - completedAtMs) { "延迟超出单调时钟范围" }
                         queue.add(Event(region, completedAtMs + delayMs, sequence++))
                     }
                     val startedAtMs = SystemClock.elapsedRealtime()
-                    // Resume only unfinished regions. Completed upstreams unlock their children,
-                    // with a newly sampled delay; already completed taps are never replayed.
-                    active.filter { it.sourceRegionId == null || it.sourceRegionId in progress().completedRegionIds }
+                    // Resume partial batches without replaying successful clicks or the first
+                    // delay; finished upstream batches unlock children with a fresh first delay.
+                    active.filter { (progress().completedClicksByRegion[it.id] ?: 0L) > 0 ||
+                        it.sourceRegionId == null || it.sourceRegionId in progress().completedRegionIds }
                         .forEach { enqueue(it, startedAtMs) }
                     while (queue.isNotEmpty() && progress().completed == triggerIndex) {
                         coroutineContext.ensureActive()
@@ -56,7 +60,9 @@ class ClickScheduler(
                         coroutineContext.ensureActive()
                         if (progress().completed != triggerIndex) break
                         val completedAtMs = SystemClock.elapsedRealtime()
-                        active.filter { it.sourceRegionId == next.region.id }.forEach { enqueue(it, completedAtMs) }
+                        if (next.region.id in progress().completedRegionIds) {
+                            active.filter { it.sourceRegionId == next.region.id }.forEach { enqueue(it, completedAtMs) }
+                        } else enqueue(next.region, completedAtMs)
                         delay(1)
                     }
                     check(progress().completed > triggerIndex) { "当前组没有可执行任务，请检查依赖配置" }

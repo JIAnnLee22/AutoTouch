@@ -18,6 +18,7 @@ data class RuntimeState(
     val completed: Long = 0,
     val targetTriggerCount: Long = 1,
     val completedRegionIds: Set<String> = emptySet(),
+    val completedClicksByRegion: Map<String, Long> = emptyMap(),
     val runGroupId: String? = null,
 )
 

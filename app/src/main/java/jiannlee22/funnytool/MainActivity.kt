@@ -144,7 +144,7 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             OutlinedButton(onClick = model::stop, enabled = state.runtime.mode != RunMode.IDLE,
                                 modifier = Modifier.weight(1f)) { Text("停止") }
                         }
-                        Text("每次组触发按组内规则各执行一遍；暂停保留本次进度，停止后重新开始清零。手势完成不等于目标应用业务成功。",
+                        Text("每次组触发完成各区域的连点批次；暂停保留本次进度，停止后重新开始清零。手势完成不等于目标应用业务成功。",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -219,11 +219,13 @@ private fun FunnyScreen(model: MainViewModel = viewModel()) {
                             Switch(checked = region.enabled, enabled = editable,
                                 onCheckedChange = { model.save(region.copy(enabled = it)) })
                         }
-                        Text("${region.timing.baseDelayMs} + 随机 ${region.timing.randomDelayMinMs}~${region.timing.randomDelayMaxMs} ms",
+                        Text("首次等待 ${region.timing.baseDelayMs} + 随机 ${region.timing.randomDelayMinMs}~${region.timing.randomDelayMaxMs} ms",
                             style = MaterialTheme.typography.bodyLarge)
+                        Text("每次触发 ${region.clicksPerTrigger} 次点击 · 后续间隔 ${region.clickIntervalMinMs}~${region.clickIntervalMaxMs} ms",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         Text("圆心 (${region.centerX.toInt()}, ${region.centerY.toInt()}) · 半径 ${region.radiusPx.toInt()} px · 短按 ${region.pressDurationMinMs}~${region.pressDurationMaxMs} ms",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (region.sourceRegionId != null) Text("同组上游完成后计时，每次组触发执行一次",
+                        if (region.sourceRegionId != null) Text("同组上游整批完成后计时，当前区域整批完成才激活下游",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -293,6 +295,9 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
     var max by remember { mutableStateOf(region.timing.randomDelayMaxMs.toString()) }
     var pressMin by remember { mutableStateOf(region.pressDurationMinMs.toString()) }
     var pressMax by remember { mutableStateOf(region.pressDurationMaxMs.toString()) }
+    var clickCount by remember { mutableStateOf(region.clicksPerTrigger.toString()) }
+    var intervalMin by remember { mutableStateOf(region.clickIntervalMinMs.toString()) }
+    var intervalMax by remember { mutableStateOf(region.clickIntervalMaxMs.toString()) }
     var targetGroup by remember { mutableStateOf(config.selectedGroupId) }
     var source by remember { mutableStateOf(region.sourceRegionId) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -307,12 +312,17 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
                 options = listOf<String?>(null) + config.regions.filter { it.id != region.id }.map { it.id },
                 title = { id -> id?.let { selected -> "依赖 ${config.regions.find { it.id == selected }?.name} 完成" } ?: "独立计时" },
                 onSelect = { source = it })
-            Text(if (source == null) "每次组触发开始后等待以下时间，点击一次" else "上游手势完成后，等待以下时间点击一次",
+            Text(if (source == null) "每次组触发开始后，先等待以下时间再开始本区域连点" else "上游整批连点完成后，先等待以下时间再开始本区域连点",
                 style = MaterialTheme.typography.bodySmall)
-            NumberField("基础延迟 (ms)", base) { base = it }
-            NumberField("随机附加下限 (ms)", min) { min = it }
-            NumberField("随机附加上限 (ms)", max) { max = it }
-            Text("点击前等待 = 基础延迟 + 随机附加；依赖模式从上游手势完成后开始等待。", style = MaterialTheme.typography.bodySmall)
+            NumberField("首次基础延迟 (ms)", base) { base = it }
+            NumberField("首次随机附加下限 (ms)", min) { min = it }
+            NumberField("首次随机附加上限 (ms)", max) { max = it }
+            Text("基础延迟 + 随机附加只用于本批第 1 次点击。", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            NumberField("单次触发点击次数 (至少 1 次)", clickCount) { clickCount = it }
+            NumberField("连点间隔下限 (ms)", intervalMin) { intervalMin = it }
+            NumberField("连点间隔上限 (ms)", intervalMax) { intervalMax = it }
+            Text("第 2 次起，每次只抽取上述区间的间隔，不加基础延迟；从上次手势完成后计时。每次重新随机落点与按压，整批完成才激活下游。", style = MaterialTheme.typography.bodySmall)
             NumberField("短按时长下限 (ms，1~200)", pressMin) { pressMin = it }
             NumberField("短按时长上限 (ms，1~200)", pressMax) { pressMax = it }
             Text("每次点击独立随机抽取，包含上下限；两者相同为固定短按。", style = MaterialTheme.typography.bodySmall)
@@ -324,17 +334,18 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = { TextButton(onClick = {
-        fun parseMs(text: String): Long? = text.takeIf { it.isNotBlank() && it.all(Char::isDigit) }?.toLongOrNull()
-        val baseMs = parseMs(base); val minMs = parseMs(min); val maxMs = parseMs(max)
-        val pressMinMs = parseMs(pressMin); val pressMaxMs = parseMs(pressMax)
+        fun parseNumber(text: String): Long? = text.takeIf { it.isNotBlank() && it.all(Char::isDigit) }?.toLongOrNull()
+        val baseMs = parseNumber(base); val minMs = parseNumber(min); val maxMs = parseNumber(max)
+        val pressMinMs = parseNumber(pressMin); val pressMaxMs = parseNumber(pressMax)
+        val clicks = parseNumber(clickCount); val intervalMinMs = parseNumber(intervalMin); val intervalMaxMs = parseNumber(intervalMax)
         val centerX = x.toFloatOrNull(); val centerY = y.toFloatOrNull(); val radiusPx = radius.toFloatOrNull()
         if (baseMs == null || minMs == null || maxMs == null || pressMinMs == null || pressMaxMs == null ||
-            centerX == null || centerY == null || radiusPx == null) {
-            error = "请输入有效数字；时间必须为非负整数 ms，且不能超出 Long 范围"
+            clicks == null || intervalMinMs == null || intervalMaxMs == null || centerX == null || centerY == null || radiusPx == null) {
+            error = "请输入有效数字；时间和次数必须为非负整数，且不能超出 Long 范围"
         } else {
             val updated = region.copy(name = name.trim(), centerX = centerX, centerY = centerY, radiusPx = radiusPx,
                 timing = TimingRule(baseMs, minMs, maxMs), pressDurationMinMs = pressMinMs, pressDurationMaxMs = pressMaxMs,
-                sourceRegionId = source)
+                sourceRegionId = source, clicksPerTrigger = clicks, clickIntervalMinMs = intervalMinMs, clickIntervalMaxMs = intervalMaxMs)
             val message = config.updateSelected { group -> group.copy(regions = group.regions.map { if (it.id == region.id) updated else it }) }.error()
             if (message != null) error = message else onSave(updated, targetGroup)
         }

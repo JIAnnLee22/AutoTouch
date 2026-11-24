@@ -81,13 +81,14 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         fun setTargetTriggerCount(count: Long) {
             if (count > 0 && state.value.mode == RunMode.IDLE) {
                 mutableState.value = state.value.copy(targetTriggerCount = count, completed = 0,
-                    completedRegionIds = emptySet(), runGroupId = null)
+                    completedRegionIds = emptySet(), completedClicksByRegion = emptyMap(), runGroupId = null)
             }
         }
         fun resetProgress() {
             if (state.value.mode != RunMode.IDLE) return
             instance?.stop("配置已更新，等待主动开始")
-            mutableState.value = state.value.copy(completed = 0, completedRegionIds = emptySet(), runGroupId = null)
+            mutableState.value = state.value.copy(completed = 0, completedRegionIds = emptySet(),
+                completedClicksByRegion = emptyMap(), runGroupId = null)
         }
         var instance: TapAccessibilityService? = null
             private set
@@ -177,6 +178,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
                 message = "${settings.config.selectedGroup.name} 运行中 · 本次 ${state.value.targetTriggerCount} 次组触发",
                 completed = if (resuming) state.value.completed else 0,
                 completedRegionIds = if (resuming) state.value.completedRegionIds else emptySet(),
+                completedClicksByRegion = if (resuming) state.value.completedClicksByRegion else emptyMap(),
                 runGroupId = settings.config.selectedGroupId)
             scheduler.start(settings.config)
         } catch (e: Exception) { stop("无法显示停止工具条：${e.message}") }
@@ -195,7 +197,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         capturedScreen = null
         roundRegionIds = emptySet()
         mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message,
-            completedRegionIds = emptySet(), runGroupId = null)
+            completedRegionIds = emptySet(), completedClicksByRegion = emptyMap(), runGroupId = null)
     }
 
     private fun finishRun() {
@@ -203,7 +205,7 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         removeEditor()
         val message = "执行完成：本次 ${state.value.completed} 次组触发已全部完成"
         mutableState.value = state.value.copy(mode = RunMode.IDLE, message = message,
-            completedRegionIds = emptySet(), runGroupId = null)
+            completedRegionIds = emptySet(), completedClicksByRegion = emptyMap(), runGroupId = null)
         roundRegionIds = emptySet()
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         // Keep the final count visible until the user closes or starts another run.
@@ -327,12 +329,16 @@ class TapAccessibilityService : AccessibilityService(), LifecycleOwner, SavedSta
         val current = state.value
         if (current.mode !in listOf(RunMode.RUNNING, RunMode.PAUSED) || current.runGroupId == null ||
             region.id in current.completedRegionIds || current.completed >= current.targetTriggerCount) return
-        val done = current.completedRegionIds + region.id
+        val previousClicks = current.completedClicksByRegion[region.id] ?: 0L
+        if (previousClicks >= region.clicksPerTrigger) return
+        val clicks = previousClicks + 1
+        val done = if (clicks == region.clicksPerTrigger) current.completedRegionIds + region.id else current.completedRegionIds
         val triggerComplete = roundRegionIds.isNotEmpty() && done.containsAll(roundRegionIds)
         mutableState.value = current.copy(
             completed = current.completed + if (triggerComplete) 1 else 0,
             completedRegionIds = if (triggerComplete) emptySet() else done,
-            message = if (current.mode == RunMode.RUNNING) "${region.name} 手势完成" else current.message,
+            completedClicksByRegion = if (triggerComplete) emptyMap() else current.completedClicksByRegion + (region.id to clicks),
+            message = if (current.mode == RunMode.RUNNING) "${region.name} ${clicks}/${region.clicksPerTrigger} 次完成" else current.message,
         )
         if (triggerComplete && state.value.completed == state.value.targetTriggerCount) finishRun()
     }

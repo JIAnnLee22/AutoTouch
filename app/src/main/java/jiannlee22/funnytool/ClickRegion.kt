@@ -22,11 +22,16 @@ data class TimingRule(
 
     fun sampleDelayMs(random: Random = Random.Default): Long {
         require(error() == null)
-        // Unsigned sampling avoids max + 1 overflow even for 0..Long.MAX_VALUE.
-        val width = randomDelayMaxMs.toULong() - randomDelayMinMs.toULong() + 1uL
-        val offset = if (width == 1uL) 0uL else random.nextULongBelow(width)
-        return baseDelayMs + randomDelayMinMs + offset.toLong()
+        return baseDelayMs + randomInclusive(randomDelayMinMs, randomDelayMaxMs, random)
     }
+}
+
+private fun randomInclusive(minMs: Long, maxMs: Long, random: Random): Long {
+    require(minMs >= 0 && minMs <= maxMs)
+    // Unsigned sampling avoids max + 1 overflow even for 0..Long.MAX_VALUE.
+    val width = maxMs.toULong() - minMs.toULong() + 1uL
+    val offset = if (width == 1uL) 0uL else random.nextULongBelow(width)
+    return minMs + offset.toLong()
 }
 
 private fun Random.nextULongBelow(bound: ULong): ULong {
@@ -64,11 +69,14 @@ data class ClickRegion(
     val radiusPx: Float = 60f,
     val enabled: Boolean = true,
     val timing: TimingRule = TimingRule(),
-    // null means independent; a dependency is one tap per successful upstream completion.
+    // null means independent; dependents activate after the upstream's complete click batch.
     val sourceRegionId: String? = null,
     val repeatPolicy: RepeatPolicy = RepeatPolicy.IGNORE,
     val pressDurationMinMs: Long = 50,
     val pressDurationMaxMs: Long = 50,
+    val clicksPerTrigger: Long = 1,
+    val clickIntervalMinMs: Long = 100,
+    val clickIntervalMaxMs: Long = 100,
 ) {
     fun pressDurationError(): String? = when {
         pressDurationMinMs !in 1..200 || pressDurationMaxMs !in 1..200 -> "短按上下限需为 1~200 ms"
@@ -78,7 +86,19 @@ data class ClickRegion(
 
     fun samplePressDurationMs(random: Random = Random.Default): Long {
         require(pressDurationError() == null) { pressDurationError().orEmpty() }
-        return random.nextLong(pressDurationMinMs, pressDurationMaxMs + 1)
+        return randomInclusive(pressDurationMinMs, pressDurationMaxMs, random)
+    }
+
+    fun clickBatchError(): String? = when {
+        clicksPerTrigger < 1 -> "单次触发点击次数必须为正整数"
+        clickIntervalMinMs < 0 || clickIntervalMaxMs < 0 -> "连点间隔必须为非负整数 ms"
+        clickIntervalMinMs > clickIntervalMaxMs -> "连点间隔下限不能大于上限"
+        else -> null
+    }
+
+    fun sampleClickIntervalMs(random: Random = Random.Default): Long {
+        require(clickBatchError() == null) { clickBatchError().orEmpty() }
+        return randomInclusive(clickIntervalMinMs, clickIntervalMaxMs, random)
     }
 
     fun randomPoint(random: Random = Random.Default): Pair<Float, Float> {
@@ -120,6 +140,7 @@ data class RegionGroup(
             if (region.id.isBlank() || region.name.isBlank()) return "区域名称与 ID 不能为空"
             region.timing.error()?.let { return "${region.name}：$it" }
             region.pressDurationError()?.let { return "${region.name}：$it" }
+            region.clickBatchError()?.let { return "${region.name}：$it" }
             if (!region.fits(space)) return "${region.name}：圆形必须完整处于安全屏幕内"
             if (region.sourceRegionId != null && region.sourceRegionId !in byId) return "${region.name}：上游必须位于同一组"
             val visited = mutableSetOf<String>()

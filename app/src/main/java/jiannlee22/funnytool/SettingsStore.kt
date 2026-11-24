@@ -52,7 +52,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
     }
 
     private fun encode(config: AppConfig): String = JSONObject().apply {
-        put("version", 3)
+        put("version", 4)
         put("selectedGroupId", config.selectedGroupId)
         put("groups", JSONArray().apply {
             config.groups.forEach { group -> put(JSONObject().apply {
@@ -72,6 +72,9 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
                         put("repeatPolicy", r.repeatPolicy.name)
                         put("pressDurationMinMs", r.pressDurationMinMs)
                         put("pressDurationMaxMs", r.pressDurationMaxMs)
+                        put("clicksPerTrigger", r.clicksPerTrigger)
+                        put("clickIntervalMinMs", r.clickIntervalMinMs)
+                        put("clickIntervalMaxMs", r.clickIntervalMaxMs)
                     }) }
                 })
             }) }
@@ -94,6 +97,9 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
                 repeatPolicy = RepeatPolicy.valueOf(r.getString("repeatPolicy")),
                 pressDurationMinMs = r.getLong(if (version == 1) "pressDurationMs" else "pressDurationMinMs"),
                 pressDurationMaxMs = r.getLong(if (version == 1) "pressDurationMs" else "pressDurationMaxMs"),
+                clicksPerTrigger = if (version < 4) 1 else r.getLong("clicksPerTrigger"),
+                clickIntervalMinMs = if (version < 4) 100 else r.getLong("clickIntervalMinMs"),
+                clickIntervalMaxMs = if (version < 4) 100 else r.getLong("clickIntervalMaxMs"),
             )
         }
         return RegionGroup(
@@ -107,7 +113,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         if (raw == null) return AppConfig()
         val root = JSONObject(raw)
         val version = root.getInt("version")
-        require(version in 1..3) { "不支持的配置版本" }
+        require(version in 1..4) { "不支持的配置版本" }
         val config = if (version < 3) AppConfig(groups = listOf(decodeGroup(root, version))) else {
             val groups = root.getJSONArray("groups")
             AppConfig(List(groups.length()) { decodeGroup(groups.getJSONObject(it), version) }, root.getString("selectedGroupId"))

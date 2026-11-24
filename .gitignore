@@ -7,5 +7,7 @@ local.properties
 .DS_Store
 *.jks
 *.keystore
+*.p12
+!signing/funnytool-shared.p12
 .env
 .env.*

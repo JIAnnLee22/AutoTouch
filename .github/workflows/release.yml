@@ -59,7 +59,7 @@ jobs:
           "$sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Prepare optional release signing
+      - name: Prepare private signing override or fixed shared signing
         id: signing
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -72,11 +72,12 @@ jobs:
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/funnytool-release.jks"
             echo 'signed=true' >> "$GITHUB_OUTPUT"
           elif [[ -n "$KEYSTORE_BASE64$STORE_PASSWORD$KEY_ALIAS$KEY_PASSWORD" ]]; then
-            echo 'Configure all four ANDROID signing secrets, or none for a preview.' >&2
+            echo 'Configure all four ANDROID signing secrets, or none to use the fixed shared key.' >&2
             exit 1
           else
             echo 'signed=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::No private signing key: producing a debug-key-signed preview; future tags may require reinstalling.'
+            test -s signing/funnytool-shared.p12
+            echo '::warning::Using the intentionally public fixed shared development key. Install only trusted builds.'
           fi
 
       - name: Lint and build installable release APK
@@ -98,17 +99,20 @@ jobs:
           PRIVATE_SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           mkdir -p dist
-          suffix='preview'
-          if [[ "$PRIVATE_SIGNED" == 'true' ]]; then suffix='release'; fi
-          cp app/build/outputs/apk/release/app-release.apk "dist/FunnyTool-${RELEASE_TAG}-${suffix}.apk"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/*.apk
-          (cd dist && sha256sum ./*.apk > SHA256SUMS.txt)
+          cp app/build/outputs/apk/release/app-release.apk "dist/FunnyTool-${RELEASE_TAG}-release.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/*.apk | tee dist/SIGNING-CERTIFICATE.txt
+          if [[ "$PRIVATE_SIGNED" != 'true' ]]; then
+            expected="$(openssl x509 -in signing/funnytool-shared-cert.pem -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+            actual="$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/ { print tolower($2) }' dist/SIGNING-CERTIFICATE.txt)"
+            test "$actual" = "$expected"
+          fi
+          (cd dist && sha256sum ./*.apk SIGNING-CERTIFICATE.txt > SHA256SUMS.txt)
           # shellcheck disable=SC2016
           printf 'Android 8.0+ · package `jiannlee22.funnytool`\n\n' > dist/NOTES.md
           if [[ "$PRIVATE_SIGNED" == 'true' ]]; then
             printf '使用仓库配置的私有密钥签名，可在签名一致时覆盖升级。\n' >> dist/NOTES.md
           else
-            printf '**预览签名**：未配置私有签名 Secrets，使用临时 debug 密钥签署非 debuggable 的 release 构建。不同 tag 之间可能无法覆盖安装；正式使用前请配置稳定密钥。\n' >> dist/NOTES.md
+            printf '**固定共享开发签名**：使用仓库中的固定密钥，后续同证书且版本码递增的安装包可覆盖升级。私钥按用户要求公开，任何人都可用其伪造 APK，仅安装可信构建；不是保密的生产签名。\n\n旧 v0.1.1/v0.1.2 与此证书不同，首次切换通常需要卸载旧版，卸载会丢失配置。\n' >> dist/NOTES.md
           fi
           printf '\n仅在用户授权无障碍服务并主动开始后执行；锁屏或屏幕变化后不自动恢复。\n' >> dist/NOTES.md
 
@@ -118,6 +122,7 @@ jobs:
           path: |
             dist/*.apk
             dist/SHA256SUMS.txt
+            dist/SIGNING-CERTIFICATE.txt
             app/build/reports/lint-results-debug.html
 
       - name: Publish GitHub Release
@@ -126,13 +131,24 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS.txt --clobber
+            gh release upload "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS.txt dist/SIGNING-CERTIFICATE.txt --clobber
           else
             args=()
             if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS.txt \
+            gh release create "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS.txt dist/SIGNING-CERTIFICATE.txt \
               --verify-tag --title "FunnyTool $RELEASE_TAG" --notes-file dist/NOTES.md "${args[@]}"
           fi
+
+      - name: Remove the two superseded preview releases (keep tags)
+        if: ${{ steps.version.outputs.tag == 'v0.1.3' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for old_tag in v0.1.1 v0.1.2; do
+            if gh release view "$old_tag" >/dev/null 2>&1; then
+              gh release delete "$old_tag" --yes
+            fi
+          done
 
       - name: Remove temporary keystore
         if: always()

@@ -26,7 +26,7 @@ Android 多区域随机触摸工具。包名 **`jiannlee22.funnytool`**，最低
 4. 保存后保留控制条，点击「开始」；若从暂停状态进入位置编辑，保存/取消后返回暂停并保留进度，点击「恢复」。悬浮条开始前也可加减本次次数。每次组触发先等待各自延迟，所有启用区域完成后才进入下一次。
 5. 运行时只有可拖动控制条，落点避开它；折叠后拖动次数移动，点箭头展开。暂停保留已完成组次数和当前遍已完成区域，不重复点击；停止后再次开始清零，不保存历史累计计数。完成 N 次会弹出完成提示，悬浮计数保留，可展开查看并关闭。
 
-**配置兼容**：旧 v1/v2 区域归入「默认组」，坐标、时间与依赖保留；v1 固定 `pressDurationMs` 转成相等上下限。保存为 JSON v3（含分组），仍沿用原 DataStore 与配置键；旧区域级次数上限不再使用。新格式不保证能回退给旧版读取；卸载重装仍会丢失配置，预览签名升级限制见下文。
+**配置兼容**：旧 v1/v2 区域归入「默认组」，坐标、时间与依赖保留；v1 固定 `pressDurationMs` 转成相等上下限。保存为 JSON v3（含分组），仍沿用原 DataStore 与配置键；旧区域级次数上限不再使用。新格式不保证能回退给旧版读取；卸载重装仍会丢失配置，从旧预览签名切换到固定签名的限制见下文。
 
 **安全边界**：不读取页面树、不申请网络权限、不自动授权。Android 的手势完成回调不代表目标应用业务处理成功。停止无法保证撤回已经交给 Android 的当前单次按压（首版上限 200 ms），但不会继续传播其依赖事件。回调持续丢失时会保持停止并阻止重启手势，需要用户关闭后重新启用无障碍服务；不会冒险并发提交新手势。工具条完整遮住某区域、系统拒绝手势或回调超时会停止，而不是盲目继续点击。圆形位于安全矩形内，不在系统边缘、刘海/挖孔区域执行手势；厂商实现仍需真机验证。
 
@@ -45,7 +45,9 @@ Android 多区域随机触摸工具。包名 **`jiannlee22.funnytool`**，最低
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/reports/lint-results-debug.html`
 
-默认 release 构建为非 debuggable、使用 debug 密钥签名的可安装**预览包**，不是正式生产签名。稳定覆盖升级需设置下述私有签名环境变量。不要提交密钥。
+从 **v0.1.3** 起，默认 release 构建使用本仓库专用的**固定共享开发签名**，不再回退到临时 debug key。密钥按用户要求公开在 [`signing/`](signing/README.md)，本地与 CI 使用同一证书；后续同证书、版本码递增的 APK 可覆盖升级。
+
+**安全警告**：私钥公开，任何人都能签出同身份的伪造 APK，只安装可信构建；这不是安全的生产签名。不要用于其他应用。旧 v0.1.1/v0.1.2 与新证书不同，首次切换通常需卸载旧版，卸载会删除配置；这两个旧 Release 按用户要求删除，但 Git tag 和历史保留。
 
 如在 NixOS 遇到 Maven aapt2 无法执行，可按本机实际 SDK 路径运行：
 ```bash
@@ -70,8 +72,11 @@ git push origin v0.2.0
 
 推送 `v*` tag 后自动校验版本号、lint、构建 release APK、验证签名、生成 `SHA256SUMS.txt` 并创建 GitHub Release。支持 `v0.1.0-beta.1`，会标为预发布；也支持在 Actions 手动输入已存在的 tag 重跑。版本名取自 tag，版本码为 `1000 + GITHUB_RUN_NUMBER`；勿将已发布 tag 移到其他提交。
 
-### 正式签名（推荐在第一次长期使用前配置）
-在仓库 **Settings → Secrets and variables → Actions** 设置：
+### 可选私有生产签名覆盖
+默认无需 Secrets，直接使用固定共享密钥；证书 SHA-256：
+`40d32ff8d57d87894d4198ad48b1c4da010a2e46ed7a2d3b5e96442296936d0a`
+
+如要改用**保密的生产签名**，在仓库 **Settings → Secrets and variables → Actions** 设置：
 
 | Secret | 内容 |
 |---|---|
@@ -80,11 +85,22 @@ git push origin v0.2.0
 | `ANDROID_KEY_ALIAS` | 密钥别名 |
 | `ANDROID_KEY_PASSWORD` | 对应密钥密码 |
 
-四项必须全部配置，或全部留空。全部留空时仍能自动发布 `*-preview.apk`；GitHub 的临时 runner 会生成不同 debug 密钥，**不同 tag 之间可能需要卸载后重装，卸载会丢失配置**。设置稳定私有签名后产物为 `*-release.apk`。请自行备份密钥，切勿上传到 Git。
+四项必须全部配置，或全部留空；配置不完整时构建失败，不能悄悄回退到另一张证书。全部留空使用仓库内固定共享签名，全部配置则使用私有签名，产物均为 `*-release.apk`，并附 `SIGNING-CERTIFICATE.txt` 和 `SHA256SUMS.txt`。私有密钥必须自行备份且不要提交入库；**更换证书会影响已安装版本的覆盖升级**。
+
+发布工作流会校验 APK 签名，并在默认模式核对 APK 证书指纹与仓库公钥证书一致。v0.1.3 新包成功发布后，仅删除 v0.1.1/v0.1.2 两个旧 Release 及其附件，不删除对应 tag。
 
 本地正式签名使用 `ANDROID_KEYSTORE_PATH`（绝对路径）、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 环境变量；版本可用 `-PreleaseVersion=0.1.0 -PreleaseVersionCode=1001` 指定。
 
+## 依赖计时核查
+依赖区域并非只等基础延迟：上游手势完成后，子区域统一通过 `ClickScheduler.enqueue()` 调用 `TimingRule.sampleDelayMs()`，计算**子区域自己的** `baseDelayMs + randomInclusive(min,max)`，等到单调时钟截止时间才派发手势。
+
+例如 B 依赖 A，B 的基础延迟为 `2000 ms`、随机附加为 `300~500 ms`，则 A 手势完成后至少等待 `2300~2500 ms` 才提交 B；其他区域的串行手势可能使 B 更晚，但不会让它提前。`0~0 ms` 仅等基础延迟，`500~500 ms` 则固定再加 500 ms；随机短按时长属于提交后的按下持续时间，不是点击前等待。暂停恢复按已确定规则重新抽取完整等待时间。本次核查未发现漏等随机延迟，未删改该计时算法。
+
 ## 验证记录
+### v0.1.3：固定签名与依赖随机等待核查
+- 本地 Debug/Release/lint 构建通过，lint 0 错误、11 条警告；Release 证书 SHA-256 与仓库公钥证书一致，`actionlint`（含 ShellCheck）通过。
+- 依赖随机等待经模型、入队截止时间、等待循环、配置存取四条路径静态复核；未新增测试用例，尚未完成真机时序测量。
+
 ### v0.1.2：随机短按、分组、本次组触发次数与折叠悬浮窗
 - 已通过 [GitHub Actions](https://github.com/JIAnnLee22/AutoTouch/actions/runs/45158158676) 自动发布 [v0.1.2](https://github.com/JIAnnLee22/AutoTouch/releases/tag/v0.1.2)，回下载 APK 的 SHA-256 与签名校验通过；版本名 `0.1.2`、版本码 `1003`。
 - JDK 21 下 `:app:assembleDebug :app:assembleRelease :app:lintDebug` 构建通过，lint 0 错误、11 条警告；release APK 签名验证通过，包名 `jiannlee22.funnytool`、版本名 `0.1.2`、min SDK 26、target SDK 35。

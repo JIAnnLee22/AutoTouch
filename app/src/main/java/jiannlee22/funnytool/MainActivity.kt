@@ -312,6 +312,7 @@ private fun RegionDialog(region: ClickRegion, config: AppConfig, onDismiss: () -
             NumberField("基础延迟 (ms)", base) { base = it }
             NumberField("随机附加下限 (ms)", min) { min = it }
             NumberField("随机附加上限 (ms)", max) { max = it }
+            Text("点击前等待 = 基础延迟 + 随机附加；依赖模式从上游手势完成后开始等待。", style = MaterialTheme.typography.bodySmall)
             NumberField("短按时长下限 (ms，1~200)", pressMin) { pressMin = it }
             NumberField("短按时长上限 (ms，1~200)", pressMax) { pressMax = it }
             Text("每次点击独立随机抽取，包含上下限；两者相同为固定短按。", style = MaterialTheme.typography.bodySmall)

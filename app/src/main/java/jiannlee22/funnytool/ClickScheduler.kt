@@ -36,6 +36,7 @@ class ClickScheduler(
                     fun enqueue(region: ClickRegion, completedAtMs: Long) {
                         if (region.id in progress().completedRegionIds || queue.any { it.region.id == region.id }) return
                         check(queue.size < 256) { "待执行事件超过 256 个，已安全停止" }
+                        // Both roots and dependent children wait their own base + newly sampled extra.
                         val delayMs = region.timing.sampleDelayMs()
                         check(delayMs <= Long.MAX_VALUE - completedAtMs) { "延迟超出单调时钟范围" }
                         queue.add(Event(region, completedAtMs + delayMs, sequence++))

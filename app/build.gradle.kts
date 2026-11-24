@@ -13,22 +13,26 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("releaseVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.2").get()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.3").get()
     }
-    val signingReady = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
-        .all { !System.getenv(it).isNullOrBlank() }
+    val signingValues = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
+        .map { System.getenv(it) }
+    val suppliedSigningValues = signingValues.count { !it.isNullOrBlank() }
+    require(suppliedSigningValues == 0 || suppliedSigningValues == 4) { "Provide all four ANDROID signing variables, or none." }
+    val privateSigning = suppliedSigningValues == 4
     signingConfigs {
-        if (signingReady) create("release") {
-            storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
-            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        create("release") {
+            // Explicitly public, app-specific shared development key; never use for production identity.
+            storeFile = if (privateSigning) file(signingValues[0]!!) else rootProject.file("signing/funnytool-shared.p12")
+            storePassword = if (privateSigning) signingValues[1] else "funnytool-public-signing"
+            keyAlias = if (privateSigning) signingValues[2] else "funnytool"
+            keyPassword = if (privateSigning) signingValues[3] else "funnytool-public-signing"
+            if (!privateSigning) storeType = "PKCS12"
         }
     }
     buildTypes {
         release {
-            // Installable preview without secrets; configure a private keystore for stable upgrades.
-            signingConfig = signingConfigs.getByName(if (signingReady) "release" else "debug")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
         }
     }
